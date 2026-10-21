@@ -8,6 +8,7 @@ Track how far stocks, ETFs, indexes and crypto are from their all-time high (ATH
 - **Drawdown** from closing ATH or intraday ATH (per-user setting)
 - **Alerts** per symbol at your own thresholds (e.g. -10%, -20%, -30%) via Telegram bot and/or email
 - **Sharing**: share a watchlist read-only with specific people by email, or by public link; recipients can copy it to set their own alerts
+- **MCP server**: connect Claude (or any MCP client) to ask about your watchlists and drawdowns, and manage symbols and alerts by chat
 
 ## Architecture
 
@@ -21,6 +22,8 @@ functions/   Cloud Functions (Node 22, TypeScript)
   sendTestAlert      send a sample alert to the caller (callable)
   unlinkTelegram     disconnect Telegram (callable)
   telegramWebhook    Telegram bot: /start <code>, /status, /stop, /help
+  mcp                remote MCP server (Streamable HTTP, API key auth)
+  createApiKey / listApiKeys / revokeApiKey   manage MCP API keys (callable)
 firestore.rules
 ```
 
@@ -31,6 +34,7 @@ firestore.rules
 | `users/{uid}` | user (Telegram fields: functions only) | `athBasis`, `notifyEmail`, `alertEmail`, `notifyTelegram`, `telegramChatId`, `telegramLinkCode` |
 | `watchlists/{id}` | owner | `ownerId`, `name`, `isPublic`, `sharedWith[]` (lowercase emails) |
 | `watchlists/{id}/items/{symbol}` | owner | `thresholds[]`, `alertsEnabled`, `alertState` |
+| `apiKeys/{sha256}` | functions only | MCP API key owner, name, last used (plaintext key is never stored) |
 | `quotes/{symbol}` | functions only | price, day change, intraday and closing ATH with dates, drawdowns |
 
 ### How ATH and drawdown are computed
@@ -53,6 +57,50 @@ firestore.rules
 ### Price source
 
 [Yahoo Finance's chart API](https://query1.finance.yahoo.com/v8/finance/chart/AAPL) needs no API key and covers equities, ETFs, indexes, FX and crypto worldwide, with real-time US prices. It is an unofficial API, so all access goes through the `PriceProvider` interface in `functions/src/providers/`. To switch to a paid vendor (Polygon, Twelve Data, EODHD, ...), implement `getQuote` and `search` and return it from `getProvider()`.
+
+## MCP server
+
+The `mcp` function is a remote [Model Context Protocol](https://modelcontextprotocol.io) server, so AI assistants can work with your watchlists.
+
+| Tool | What it does |
+| --- | --- |
+| `list_watchlists` | Your watchlists and the ones shared with you |
+| `get_watchlist` | Every symbol in a list with price, ATH, drawdown and alert thresholds, deepest drawdown first |
+| `get_drawdown` | Price, closing and intraday ATH, and drawdown for any symbol |
+| `search_symbols` | Find a ticker by name ("nikkei", "msci world") |
+| `create_watchlist` | Create a private watchlist |
+| `add_symbol` / `remove_symbol` | Change symbols in your own lists (shared lists are read-only) |
+| `set_alerts` | Change a symbol's alert thresholds or turn its alerts on/off |
+
+Example prompts: *"Which of my indexes is furthest from its high?"*, *"Add the Nikkei 225 to my Asia list with alerts at 10 and 20 percent"*, *"How far is Bitcoin from its all-time high?"*
+
+### Connect a client
+
+1. In the app, go to **Settings > MCP access** and click **Create API key**. Copy the key; it is shown only once.
+2. Connect your client (the Settings page shows these with your URL and key filled in):
+   - **Claude Code**:
+     ```bash
+     claude mcp add --transport http drawdown-monitor https://us-central1-<project-id>.cloudfunctions.net/mcp \
+       --header "Authorization: Bearer <YOUR_API_KEY>"
+     ```
+   - **Claude Desktop** (needs Node.js), in `claude_desktop_config.json`:
+     ```json
+     {
+       "mcpServers": {
+         "drawdown-monitor": {
+           "command": "npx",
+           "args": ["-y", "mcp-remote", "https://us-central1-<project-id>.cloudfunctions.net/mcp", "--header", "Authorization:${AUTH}"],
+           "env": { "AUTH": "Bearer <YOUR_API_KEY>" }
+         }
+       }
+     }
+     ```
+3. Revoke a key any time from the same Settings page.
+
+Notes:
+- A key acts as you: it can read everything you can see and change your own lists. Each user can have up to 10 keys; only a SHA-256 hash is stored.
+- Lists shared with you by email are only visible if your account email is verified, same as in the app.
+- Custom connectors on claude.ai (web and mobile) require OAuth, which this server does not implement yet. Use Claude Code or Claude Desktop.
 
 ## Setup
 
@@ -166,7 +214,7 @@ The scheduled refresh does not run in the emulator; trigger a cycle from a Node 
 
 ```bash
 npm --prefix functions test         # unit tests: ATH/drawdown math, alert logic, Yahoo parsing, message formatting
-npm --prefix functions run test:rules  # Firestore security rules against the emulator (needs Java)
+npm --prefix functions run test:emulator  # security rules + MCP server against the emulators (needs Java)
 npm --prefix web run build          # type-check and build the web app
 ```
 

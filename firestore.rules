@@ -56,6 +56,13 @@ service cloud.firestore {
     }
 
     // ---------------------------------------------------------------------
+    // MCP API keys (hashed). Managed only through Cloud Functions.
+    // ---------------------------------------------------------------------
+    match /apiKeys/{id} {
+      allow read, write: if false;
+    }
+
+    // ---------------------------------------------------------------------
     // Watchlists and their items.
     // ---------------------------------------------------------------------
     match /watchlists/{wid} {

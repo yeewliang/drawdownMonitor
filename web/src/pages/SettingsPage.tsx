@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useAuth } from "../auth/AuthProvider";
+import McpAccess from "../components/McpAccess";
 import { createTelegramLink, sendTestAlert, unlinkTelegram, updateUserProfile } from "../lib/api";
 import { TELEGRAM_BOT_USERNAME } from "../lib/firebase";
 import { isEmail } from "../lib/format";
@@ -101,6 +102,8 @@ export default function SettingsPage() {
           <p className="muted">Telegram is not configured for this deployment (set VITE_TELEGRAM_BOT_USERNAME).</p>
         )}
       </section>
+
+      <McpAccess />
 
       <section className="card stack">
         <h3>Test</h3>

@@ -13,6 +13,8 @@ import { UserDoc } from "./lib/models";
 import { quoteRef, refreshQuote } from "./lib/quotes";
 import { normalizeSymbol } from "./lib/symbols";
 import { getProvider } from "./providers";
+import { createApiKey as createKey, listApiKeys as listKeys, revokeApiKey as revokeKey } from "./mcp/apiKeys";
+import { handleMcpRequest } from "./mcp/http";
 import { notifyUser } from "./notify/dispatch";
 
 setGlobalOptions({ region: REGION, maxInstances: 10 });
@@ -119,5 +121,37 @@ export const unlinkTelegram = onCall(async (req) => {
     telegramLinkedAt: FieldValue.delete(),
     telegramLinkCode: FieldValue.delete(),
   });
+  return { ok: true };
+});
+
+// ---------------------------------------------------------------------------
+// MCP server
+// ---------------------------------------------------------------------------
+
+/**
+ * Remote MCP endpoint (Streamable HTTP). Authenticate with
+ * `Authorization: Bearer <API key>` from Settings > MCP access.
+ */
+export const mcp = onRequest({ memory: "512MiB", timeoutSeconds: 60, cors: false }, handleMcpRequest);
+
+export const createApiKey = onCall(async (req) => {
+  if (!req.auth) throw new HttpsError("unauthenticated", "Sign in first.");
+  const name = typeof req.data?.name === "string" ? req.data.name : "";
+  try {
+    return await createKey(req.auth.uid, name);
+  } catch (err) {
+    throw new HttpsError("failed-precondition", err instanceof Error ? err.message : String(err));
+  }
+});
+
+export const listApiKeys = onCall(async (req) => {
+  if (!req.auth) throw new HttpsError("unauthenticated", "Sign in first.");
+  return { keys: await listKeys(req.auth.uid) };
+});
+
+export const revokeApiKey = onCall(async (req) => {
+  if (!req.auth) throw new HttpsError("unauthenticated", "Sign in first.");
+  const id = typeof req.data?.id === "string" ? req.data.id : "";
+  if (!(await revokeKey(req.auth.uid, id))) throw new HttpsError("not-found", "Key not found.");
   return { ok: true };
 });

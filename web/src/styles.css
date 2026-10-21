@@ -170,3 +170,6 @@ table.grid { width: 100%; border-collapse: collapse; }
   .grid th, .grid td { padding: 8px; }
   .topbar { padding: 10px 16px; }
 }
+
+pre.code { margin: 8px 0 0; padding: 12px; background: color-mix(in srgb, var(--muted) 12%, transparent); border-radius: 8px; overflow-x: auto; font-size: 0.8rem; }
+details summary { cursor: pointer; font-weight: 500; }

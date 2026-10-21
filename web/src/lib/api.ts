@@ -136,3 +136,25 @@ export async function sendTestAlert(): Promise<{ email: string; telegram: string
 export async function unlinkTelegram(): Promise<void> {
   await httpsCallable(functions, "unlinkTelegram")();
 }
+
+// ---------------------------------------------------------------- MCP API keys
+
+export interface ApiKeyInfo {
+  id: string;
+  name: string;
+  hint: string;
+  createdAt: string;
+  lastUsedAt: string | null;
+}
+
+export async function createApiKey(name: string): Promise<{ key: string; info: ApiKeyInfo }> {
+  return (await httpsCallable<{ name: string }, { key: string; info: ApiKeyInfo }>(functions, "createApiKey")({ name })).data;
+}
+
+export async function listApiKeys(): Promise<ApiKeyInfo[]> {
+  return (await httpsCallable<void, { keys: ApiKeyInfo[] }>(functions, "listApiKeys")()).data.keys;
+}
+
+export async function revokeApiKey(id: string): Promise<void> {
+  await httpsCallable(functions, "revokeApiKey")({ id });
+}

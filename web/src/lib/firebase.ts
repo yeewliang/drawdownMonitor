@@ -24,3 +24,10 @@ if (env.VITE_USE_EMULATORS === "true") {
 }
 
 export const TELEGRAM_BOT_USERNAME: string = env.VITE_TELEGRAM_BOT_USERNAME ?? "";
+
+/** Public URL of the `mcp` Cloud Function. */
+export const MCP_URL: string =
+  env.VITE_MCP_URL ||
+  (env.VITE_USE_EMULATORS === "true"
+    ? `http://127.0.0.1:5001/${env.VITE_FIREBASE_PROJECT_ID}/${env.VITE_FUNCTIONS_REGION || "us-central1"}/mcp`
+    : `https://${env.VITE_FUNCTIONS_REGION || "us-central1"}-${env.VITE_FIREBASE_PROJECT_ID}.cloudfunctions.net/mcp`);
