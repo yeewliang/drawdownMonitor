@@ -1,0 +1,105 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    // Shared-with access is keyed by email, so the email must be verified.
+    // Otherwise anyone could register an unverified account using someone
+    // else's address and read lists shared with that person.
+    function verifiedEmail() {
+      return signedIn()
+        && request.auth.token.email != null
+        && request.auth.token.email_verified == true;
+    }
+
+    function canReadWatchlist(wl) {
+      return wl.isPublic == true
+        || (signedIn() && wl.ownerId == request.auth.uid)
+        || (verifiedEmail() && request.auth.token.email.lower() in wl.sharedWith);
+    }
+
+    // ---------------------------------------------------------------------
+    // User profiles. Telegram link fields are written by Cloud Functions only.
+    // ---------------------------------------------------------------------
+    match /users/{uid} {
+      function serverOnlyKeys() {
+        return ['telegramChatId', 'telegramUsername', 'telegramLinkedAt'];
+      }
+
+      function validProfile(d) {
+        return (!('athBasis' in d) || d.athBasis in ['close', 'intraday'])
+          && (!('alertEmail' in d) || d.alertEmail == null || (d.alertEmail is string && d.alertEmail.size() <= 254))
+          && (!('telegramLinkCode' in d) || d.telegramLinkCode == null
+              || (d.telegramLinkCode is string && d.telegramLinkCode.matches('^[A-Za-z0-9_-]{16,64}$')));
+      }
+
+      allow read: if signedIn() && request.auth.uid == uid;
+      allow create: if signedIn() && request.auth.uid == uid
+        && !request.resource.data.keys().hasAny(serverOnlyKeys())
+        && validProfile(request.resource.data);
+      allow update: if signedIn() && request.auth.uid == uid
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(serverOnlyKeys())
+        && validProfile(request.resource.data);
+      allow delete: if false;
+    }
+
+    // ---------------------------------------------------------------------
+    // Market data. Public read, written only by Cloud Functions (Admin SDK).
+    // ---------------------------------------------------------------------
+    match /quotes/{symbol} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // ---------------------------------------------------------------------
+    // Watchlists and their items.
+    // ---------------------------------------------------------------------
+    match /watchlists/{wid} {
+      function validWatchlist(d) {
+        return d.keys().hasAll(['ownerId', 'name', 'isPublic', 'sharedWith'])
+          && d.name is string && d.name.size() > 0 && d.name.size() <= 80
+          && d.isPublic is bool
+          && d.sharedWith is list && d.sharedWith.size() <= 50;
+      }
+
+      // `get` allows public lists via a direct link; `list` (queries) never
+      // exposes public lists, so they cannot be enumerated.
+      allow get: if canReadWatchlist(resource.data);
+      allow list: if (signedIn() && resource.data.ownerId == request.auth.uid)
+        || (verifiedEmail() && request.auth.token.email.lower() in resource.data.sharedWith);
+
+      allow create: if signedIn()
+        && request.resource.data.ownerId == request.auth.uid
+        && validWatchlist(request.resource.data);
+      allow update: if signedIn()
+        && resource.data.ownerId == request.auth.uid
+        && request.resource.data.ownerId == resource.data.ownerId
+        && validWatchlist(request.resource.data);
+      allow delete: if signedIn() && resource.data.ownerId == request.auth.uid;
+
+      match /items/{symbol} {
+        function parent() {
+          return get(/databases/$(database)/documents/watchlists/$(wid)).data;
+        }
+
+        function validItem(d) {
+          return d.symbol == symbol
+            && d.symbol is string && d.symbol.size() <= 32
+            && d.ownerId == request.auth.uid
+            && d.thresholds is list && d.thresholds.size() <= 10
+            && d.alertsEnabled is bool;
+        }
+
+        allow read: if canReadWatchlist(parent());
+        allow create, update: if signedIn()
+          && parent().ownerId == request.auth.uid
+          && validItem(request.resource.data);
+        allow delete: if signedIn() && parent().ownerId == request.auth.uid;
+      }
+    }
+  }
+}

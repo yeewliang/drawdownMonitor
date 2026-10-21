@@ -1,0 +1,16 @@
+node_modules/
+dist/
+/functions/lib/
+.env
+.env.local
+web/.env.local
+functions/.env.*
+!functions/.env.example
+.firebase/
+*-debug.log
+firebase-debug.*.log
+ui-debug.log
+coverage/
+.DS_Store
+firestore-debug.log
+*.tsbuildinfo
