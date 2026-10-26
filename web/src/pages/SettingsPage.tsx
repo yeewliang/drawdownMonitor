@@ -5,6 +5,8 @@ import { createTelegramLink, sendTestAlert, unlinkTelegram, updateUserProfile } 
 import { TELEGRAM_BOT_USERNAME } from "../lib/firebase";
 import { isEmail } from "../lib/format";
 
+const browserTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
 export default function SettingsPage() {
   const { user, profile } = useAuth();
   const uid = user!.uid;
@@ -86,6 +88,20 @@ export default function SettingsPage() {
             <label className="toggle">
               <input type="checkbox" checked={profile?.notifyTelegram !== false} onChange={(e) => updateUserProfile(uid, { notifyTelegram: e.target.checked })} />
               Send alerts on Telegram
+            </label>
+            <label>
+              Daily summary time (for watchlists with <i>Daily Telegram summary</i> on)
+              <div className="row">
+                <select
+                  value={profile?.summaryHour ?? 8}
+                  onChange={(e) => updateUserProfile(uid, { summaryHour: Number(e.target.value), summaryTimeZone: browserTimeZone })}
+                >
+                  {Array.from({ length: 24 }, (_, h) => (
+                    <option key={h} value={h}>{String(h).padStart(2, "0")}:00</option>
+                  ))}
+                </select>
+                <span className="muted small-text">{profile?.summaryTimeZone ?? "Asia/Singapore"}</span>
+              </div>
             </label>
             <div>
               <button className="btn danger" onClick={() => unlinkTelegram()}>Disconnect Telegram</button>

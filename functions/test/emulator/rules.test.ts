@@ -114,5 +114,8 @@ describe("users", () => {
     await assertSucceeds(updateDoc(doc(alice(), "users/alice"), { telegramLinkCode: "abcdefghijklmnopqrstuvwx" }));
     await assertFails(updateDoc(doc(alice(), "users/alice"), { telegramLinkCode: "short" }));
     await assertFails(updateDoc(doc(alice(), "users/alice"), { athBasis: "weird" }));
+    await assertSucceeds(updateDoc(doc(alice(), "users/alice"), { summaryHour: 7, summaryTimeZone: "Asia/Singapore" }));
+    await assertFails(updateDoc(doc(alice(), "users/alice"), { summaryHour: 24 }));
+    await assertFails(updateDoc(doc(alice(), "users/alice"), { summaryHour: "7" }));
   });
 });

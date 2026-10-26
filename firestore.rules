@@ -34,7 +34,9 @@ service cloud.firestore {
         return (!('athBasis' in d) || d.athBasis in ['close', 'intraday'])
           && (!('alertEmail' in d) || d.alertEmail == null || (d.alertEmail is string && d.alertEmail.size() <= 254))
           && (!('telegramLinkCode' in d) || d.telegramLinkCode == null
-              || (d.telegramLinkCode is string && d.telegramLinkCode.matches('^[A-Za-z0-9_-]{16,64}$')));
+              || (d.telegramLinkCode is string && d.telegramLinkCode.matches('^[A-Za-z0-9_-]{16,64}$')))
+          && (!('summaryHour' in d) || (d.summaryHour is int && d.summaryHour >= 0 && d.summaryHour <= 23))
+          && (!('summaryTimeZone' in d) || (d.summaryTimeZone is string && d.summaryTimeZone.size() <= 64));
       }
 
       allow read: if signedIn() && request.auth.uid == uid;

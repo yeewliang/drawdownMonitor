@@ -32,6 +32,8 @@ export interface UserProfile {
   telegramChatId?: number | null;
   telegramUsername?: string | null;
   telegramLinkCode?: string | null;
+  summaryHour?: number;
+  summaryTimeZone?: string;
 }
 
 export interface Watchlist {

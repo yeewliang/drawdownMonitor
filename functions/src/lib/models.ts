@@ -37,6 +37,9 @@ export interface UserDoc {
   telegramChatId?: number | null;
   telegramUsername?: string | null;
   telegramLinkCode?: string | null;
+  /** Hour (0-23) in summaryTimeZone to send the daily summary. */
+  summaryHour?: number;
+  summaryTimeZone?: string;
 }
 
 /** watchlists/{wid} */

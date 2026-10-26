@@ -105,7 +105,7 @@ export default function WatchlistPage() {
             <button className={basis === "intraday" ? "active" : ""} onClick={() => setBasis("intraday")} title="Drawdown from the highest intraday price">Intraday ATH</button>
           </div>
           {isOwner && (
-            <label className="toggle" title={profile?.telegramChatId ? "Telegram message every day at 08:00 SGT" : "Connect Telegram in Settings first"}>
+            <label className="toggle" title={profile?.telegramChatId ? `Telegram message every day at ${String(profile.summaryHour ?? 8).padStart(2, "0")}:00 (change in Settings)` : "Connect Telegram in Settings first"}>
               <input type="checkbox" checked={!!w.dailySummary} onChange={(e) => updateWatchlist(w.id, { dailySummary: e.target.checked })} />
               Daily Telegram summary
             </label>

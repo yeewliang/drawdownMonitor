@@ -6,7 +6,8 @@ import * as logger from "firebase-functions/logger";
 import { setGlobalOptions } from "firebase-functions/options";
 import { onSchedule } from "firebase-functions/scheduler";
 import { NOTIFY_SECRETS, REGION, TELEGRAM_BOT_TOKEN, TELEGRAM_WEBHOOK_SECRET } from "./config";
-import { drawdownSummary, handleTelegramUpdate } from "./http/telegramBot";
+import { handleTelegramUpdate } from "./http/telegramBot";
+import { sendDailySummaries } from "./jobs/dailySummary";
 import { refreshAllAndAlert } from "./jobs/refreshAll";
 import { db } from "./lib/firebase";
 import { UserDoc } from "./lib/models";
@@ -16,7 +17,6 @@ import { getProvider } from "./providers";
 import { createApiKey as createKey, listApiKeys as listKeys, revokeApiKey as revokeKey } from "./mcp/apiKeys";
 import { handleMcpRequest } from "./mcp/http";
 import { notifyUser } from "./notify/dispatch";
-import { sendTelegram } from "./notify/telegram";
 
 setGlobalOptions({ region: REGION, maxInstances: 10 });
 
@@ -31,23 +31,11 @@ export const refreshQuotes = onSchedule(
   },
 );
 
-/** Morning Telegram summary of every watchlist with `dailySummary` on, one message per owner. */
+/** Daily Telegram summary, sent at each user's chosen hour (checked hourly). */
 export const dailySummary = onSchedule(
-  { schedule: "0 8 * * *", timeZone: "Asia/Singapore", secrets: [TELEGRAM_BOT_TOKEN] },
+  { schedule: "0 * * * *", secrets: [TELEGRAM_BOT_TOKEN] },
   async () => {
-    const lists = await db.collection("watchlists").where("dailySummary", "==", true).get();
-    const byOwner = new Map<string, typeof lists.docs>();
-    for (const wl of lists.docs) byOwner.set(wl.get("ownerId"), [...(byOwner.get(wl.get("ownerId")) ?? []), wl]);
-
-    for (const [uid, owned] of byOwner) {
-      const user = ((await db.doc(`users/${uid}`).get()).data() ?? {}) as UserDoc;
-      if (!user.telegramChatId || user.notifyTelegram === false) continue;
-      try {
-        await sendTelegram(user.telegramChatId, await drawdownSummary(owned, user.athBasis ?? "close", "☀️ Daily summary ·"));
-      } catch (err) {
-        logger.warn("daily summary failed", { uid, err: String(err) });
-      }
-    }
+    await sendDailySummaries();
   },
 );
 
