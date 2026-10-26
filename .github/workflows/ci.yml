@@ -115,7 +115,7 @@ jobs:
         run: |
           set -euo pipefail
           PROD=$([ "$TARGET" = production ] && echo --prod || true)
-          npx -y "$VERCEL_CLI" pull --yes --environment="$TARGET" --token="$VERCEL_TOKEN"
-          npx -y "$VERCEL_CLI" build $PROD --token="$VERCEL_TOKEN"
-          url=$(npx -y "$VERCEL_CLI" deploy --prebuilt $PROD --token="$VERCEL_TOKEN")
+          npx -y "$VERCEL_CLI" pull --yes --environment="$TARGET"
+          npx -y "$VERCEL_CLI" build $PROD
+          url=$(npx -y "$VERCEL_CLI" deploy --prebuilt $PROD)
           echo "Deployed $TARGET: $url" | tee -a "$GITHUB_STEP_SUMMARY"
