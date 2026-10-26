@@ -179,10 +179,10 @@ Any SMTP provider works (SendGrid, Resend, Mailgun, Amazon SES, Gmail with an ap
 npm --prefix functions install
 npm --prefix web install
 firebase deploy                      # security rules and functions
-cd web && vercel link && vercel --prod   # web app on Vercel
+git push                             # web app: Vercel builds web/ on every push
 ```
 
-In the Vercel project, set the `VITE_*` variables from `web/.env.example` (Settings > Environment Variables). Then add the Vercel domain under Firebase Authentication > Settings > **Authorized domains**, and set `APP_URL` in `functions/.env.<project-id>` to it so alert links point at the app.
+Import the repo in Vercel with Root Directory `web`, and set the `VITE_*` variables from `web/.env.example` (Settings > Environment Variables). Then add the Vercel domain under Firebase Authentication > Settings > **Authorized domains**, and set `APP_URL` in `functions/.env.<project-id>` to it so alert links point at the app.
 
 ### Step 8: Register the Telegram webhook
 
