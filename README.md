@@ -181,16 +181,16 @@ Any SMTP provider works (SendGrid, Resend, Mailgun, Amazon SES, Gmail with an ap
 npm --prefix functions install
 npm --prefix web install
 firebase deploy                      # security rules and functions
-git push                             # web app: Vercel builds web/ on every push
+git push                             # later deploys: CI/CD (see below)
 ```
 
 Import the repo in Vercel with Root Directory `web`, and set the `VITE_*` variables from `web/.env.example` (Settings > Environment Variables). Set `VITE_FIREBASE_AUTH_DOMAIN` to the Vercel domain itself: `web/vercel.json` proxies `/__/auth/*` to Firebase, so redirect sign-in works on iOS and in-app browsers (add `https://<vercel-domain>/__/auth/handler` to the Google OAuth client's authorized redirect URIs). Then add the Vercel domain under Firebase Authentication > Settings > **Authorized domains**, and set `APP_URL` in `functions/.env.<project-id>` to it so alert links point at the app.
 
 ### CI/CD
 
-`.github/workflows/ci.yml` runs on every push and pull request: functions typecheck, unit tests, Firestore emulator tests and build, plus the web build. On the default branch, once those pass, it deploys Firestore rules, indexes and functions. Vercel deploys the web app from the same pushes.
+`.github/workflows/ci.yml` runs on every push and pull request: functions typecheck, unit tests, Firestore emulator tests and build, plus the web build. On the default branch, once those pass, it deploys Firestore rules, indexes and functions, then the web app to Vercel production. Same-repo pull requests get a Vercel preview. Vercel's own git deploys are disabled in `web/vercel.json`, so nothing ships without passing CI.
 
-Deploying needs a repo secret `FIREBASE_SERVICE_ACCOUNT` holding a Google Cloud service account JSON key with these roles: Firebase Admin, Cloud Functions Admin, Service Account User, Secret Manager Admin, Cloud Scheduler Admin, Artifact Registry Administrator, Cloud Build Editor. Non-secret function params come from repo variables (`APP_URL`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `MAIL_FROM`), with defaults in the workflow.
+Deploying needs repo secrets `VERCEL_TOKEN` (a Vercel access token) and `FIREBASE_SERVICE_ACCOUNT` holding a Google Cloud service account JSON key with these roles: Firebase Admin, Cloud Functions Admin, Service Account User, Secret Manager Admin, Cloud Scheduler Admin, Artifact Registry Administrator, Cloud Build Editor. Non-secret function params come from repo variables (`APP_URL`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `MAIL_FROM`), with defaults in the workflow.
 
 ### Step 8: Register the Telegram webhook
 

@@ -1,8 +1,9 @@
 name: CI/CD
 
-# Web app: Vercel builds and deploys web/ on every push (preview for branches/PRs,
-# production for the default branch). This workflow tests everything and deploys
-# the Firebase side (rules, indexes, functions) from the default branch.
+# Tests everything on every push and PR. On the default branch it then deploys
+# Firebase (rules, indexes, functions) and, after that, the web app to Vercel
+# production. PRs get a Vercel preview. Vercel's own git builds are off
+# (web/vercel.json), so nothing ships without passing tests.
 
 on:
   push:
@@ -14,6 +15,9 @@ concurrency:
 
 env:
   FIREBASE_TOOLS: firebase-tools@15.33.0
+  VERCEL_CLI: vercel@62.2.0
+  VERCEL_ORG_ID: team_pT7FWt5dzw4KbbWMK9rxDwgA
+  VERCEL_PROJECT_ID: prj_08438BRl6xbdazo5KbqFgz1JRG0y
 
 jobs:
   functions:
@@ -89,3 +93,29 @@ jobs:
           credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
       # --force: remove functions deleted from the source without prompting.
       - run: npx -y ${{ env.FIREBASE_TOOLS }} deploy --only firestore:rules,firestore:indexes,functions --non-interactive --force
+
+  deploy-web:
+    needs: [functions, web, deploy-firebase]
+    # Production after the backend deploys on the default branch; preview for same-repo PRs.
+    if: >-
+      always() && needs.functions.result == 'success' && needs.web.result == 'success' &&
+      ((github.event_name == 'push' && github.ref_name == github.event.repository.default_branch && needs.deploy-firebase.result == 'success') ||
+       (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository))
+    runs-on: ubuntu-latest
+    environment: ${{ github.event_name == 'push' && 'production' || 'preview' }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - name: Deploy to Vercel
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          TARGET: ${{ github.event_name == 'push' && 'production' || 'preview' }}
+        run: |
+          set -euo pipefail
+          PROD=$([ "$TARGET" = production ] && echo --prod || true)
+          npx -y "$VERCEL_CLI" pull --yes --environment="$TARGET" --token="$VERCEL_TOKEN"
+          npx -y "$VERCEL_CLI" build $PROD --token="$VERCEL_TOKEN"
+          url=$(npx -y "$VERCEL_CLI" deploy --prebuilt $PROD --token="$VERCEL_TOKEN")
+          echo "Deployed $TARGET: $url" | tee -a "$GITHUB_STEP_SUMMARY"
