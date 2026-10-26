@@ -74,13 +74,16 @@ jobs:
       # Non-secret function params (secrets live in Secret Manager). Override with repo variables.
       - name: Write functions/.env.<project>
         run: |
+          set -euo pipefail
+          project=$(node -p "JSON.parse(require('fs').readFileSync('.firebaserc','utf8')).projects.default")
           {
             echo "APP_URL=${{ vars.APP_URL || 'https://drawdown-monitor.vercel.app' }}"
             echo "SMTP_HOST=${{ vars.SMTP_HOST }}"
             echo "SMTP_PORT=${{ vars.SMTP_PORT || '587' }}"
             echo "SMTP_USER=${{ vars.SMTP_USER }}"
             echo "MAIL_FROM=${{ vars.MAIL_FROM || 'Drawdown Monitor <alerts@example.com>' }}"
-          } > "functions/.env.$(node -p "require('./.firebaserc').projects.default")"
+          } > "functions/.env.$project"
+          echo "wrote functions/.env.$project"
       - uses: google-github-actions/auth@v3
         with:
           credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
