@@ -186,6 +186,12 @@ git push                             # web app: Vercel builds web/ on every push
 
 Import the repo in Vercel with Root Directory `web`, and set the `VITE_*` variables from `web/.env.example` (Settings > Environment Variables). Set `VITE_FIREBASE_AUTH_DOMAIN` to the Vercel domain itself: `web/vercel.json` proxies `/__/auth/*` to Firebase, so redirect sign-in works on iOS and in-app browsers (add `https://<vercel-domain>/__/auth/handler` to the Google OAuth client's authorized redirect URIs). Then add the Vercel domain under Firebase Authentication > Settings > **Authorized domains**, and set `APP_URL` in `functions/.env.<project-id>` to it so alert links point at the app.
 
+### CI/CD
+
+`.github/workflows/ci.yml` runs on every push and pull request: functions typecheck, unit tests, Firestore emulator tests and build, plus the web build. On the default branch, once those pass, it deploys Firestore rules, indexes and functions. Vercel deploys the web app from the same pushes.
+
+Deploying needs a repo secret `FIREBASE_SERVICE_ACCOUNT` holding a Google Cloud service account JSON key with these roles: Firebase Admin, Cloud Functions Admin, Service Account User, Secret Manager Admin, Cloud Scheduler Admin, Artifact Registry Administrator, Cloud Build Editor. Non-secret function params come from repo variables (`APP_URL`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `MAIL_FROM`), with defaults in the workflow.
+
 ### Step 8: Register the Telegram webhook
 
 After the first deploy, point Telegram at the `telegramWebhook` function:
