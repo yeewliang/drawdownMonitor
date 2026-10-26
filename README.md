@@ -13,7 +13,7 @@ Track how far stocks, ETFs, indexes and crypto are from their all-time high (ATH
 ## Architecture
 
 ```
-web/         React + Vite SPA (Firebase Hosting)
+web/         React + Vite SPA (Vercel)
 functions/   Cloud Functions (Node 22, TypeScript)
   refreshQuotes      every 5 min: fetch prices, update ATH/drawdown, evaluate alerts, notify
   onItemCreated      backfill full price history when a symbol is first added
@@ -80,7 +80,7 @@ Example prompts: *"Which of my indexes is furthest from its high?"*, *"Add the N
 2. Connect your client (the Settings page shows these with your URL and key filled in):
    - **Claude Code**:
      ```bash
-     claude mcp add --transport http drawdown-monitor https://us-central1-<project-id>.cloudfunctions.net/mcp \
+     claude mcp add --transport http drawdown-monitor https://asia-southeast1-<project-id>.cloudfunctions.net/mcp \
        --header "Authorization: Bearer <YOUR_API_KEY>"
      ```
    - **Claude Desktop** (needs Node.js), in `claude_desktop_config.json`:
@@ -89,7 +89,7 @@ Example prompts: *"Which of my indexes is furthest from its high?"*, *"Add the N
        "mcpServers": {
          "drawdown-monitor": {
            "command": "npx",
-           "args": ["-y", "mcp-remote", "https://us-central1-<project-id>.cloudfunctions.net/mcp", "--header", "Authorization:${AUTH}"],
+           "args": ["-y", "mcp-remote", "https://asia-southeast1-<project-id>.cloudfunctions.net/mcp", "--header", "Authorization:${AUTH}"],
            "env": { "AUTH": "Bearer <YOUR_API_KEY>" }
          }
        }
@@ -178,10 +178,11 @@ Any SMTP provider works (SendGrid, Resend, Mailgun, Amazon SES, Gmail with an ap
 ```bash
 npm --prefix functions install
 npm --prefix web install
-firebase deploy
+firebase deploy                      # security rules and functions
+cd web && vercel link && vercel --prod   # web app on Vercel
 ```
 
-This deploys the security rules, functions and the web app (`https://<project-id>.web.app`).
+In the Vercel project, set the `VITE_*` variables from `web/.env.example` (Settings > Environment Variables). Then add the Vercel domain under Firebase Authentication > Settings > **Authorized domains**, and set `APP_URL` in `functions/.env.<project-id>` to it so alert links point at the app.
 
 ### Step 8: Register the Telegram webhook
 
@@ -189,7 +190,7 @@ After the first deploy, point Telegram at the `telegramWebhook` function:
 
 ```bash
 curl "https://api.telegram.org/bot<TELEGRAM_BOT_TOKEN>/setWebhook" \
-  -d "url=https://us-central1-<project-id>.cloudfunctions.net/telegramWebhook" \
+  -d "url=https://asia-southeast1-<project-id>.cloudfunctions.net/telegramWebhook" \
   -d "secret_token=<TELEGRAM_WEBHOOK_SECRET>" \
   -d 'allowed_updates=["message"]'
 ```

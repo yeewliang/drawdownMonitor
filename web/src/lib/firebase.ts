@@ -15,7 +15,7 @@ export const app = initializeApp({
 
 export const auth = getAuth(app);
 export const db = getFirestore(app);
-export const functions = getFunctions(app, env.VITE_FUNCTIONS_REGION || "us-central1");
+export const functions = getFunctions(app, env.VITE_FUNCTIONS_REGION || "asia-southeast1");
 
 if (env.VITE_USE_EMULATORS === "true") {
   connectAuthEmulator(auth, "http://127.0.0.1:9099", { disableWarnings: true });
@@ -29,5 +29,5 @@ export const TELEGRAM_BOT_USERNAME: string = env.VITE_TELEGRAM_BOT_USERNAME ?? "
 export const MCP_URL: string =
   env.VITE_MCP_URL ||
   (env.VITE_USE_EMULATORS === "true"
-    ? `http://127.0.0.1:5001/${env.VITE_FIREBASE_PROJECT_ID}/${env.VITE_FUNCTIONS_REGION || "us-central1"}/mcp`
-    : `https://${env.VITE_FUNCTIONS_REGION || "us-central1"}-${env.VITE_FIREBASE_PROJECT_ID}.cloudfunctions.net/mcp`);
+    ? `http://127.0.0.1:5001/${env.VITE_FIREBASE_PROJECT_ID}/${env.VITE_FUNCTIONS_REGION || "asia-southeast1"}/mcp`
+    : `https://${env.VITE_FUNCTIONS_REGION || "asia-southeast1"}-${env.VITE_FIREBASE_PROJECT_ID}.cloudfunctions.net/mcp`);

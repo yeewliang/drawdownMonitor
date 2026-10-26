@@ -14,7 +14,7 @@ export const SMTP_USER = defineString("SMTP_USER", { default: "" });
 export const SMTP_PASS = defineSecret("SMTP_PASS");
 export const MAIL_FROM = defineString("MAIL_FROM", { default: "Drawdown Monitor <alerts@example.com>" });
 
-export const REGION = "us-central1";
+export const REGION = "asia-southeast1";
 
 /** Secrets needed by any function that sends notifications. */
 export const NOTIFY_SECRETS = [TELEGRAM_BOT_TOKEN, SMTP_PASS];
