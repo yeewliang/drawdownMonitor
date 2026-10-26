@@ -1,5 +1,5 @@
 import type { Timestamp } from "firebase/firestore";
-import type { AthBasis, Quote } from "./types";
+import type { AthBasis, Quote, UserProfile } from "./types";
 
 export function fmtPrice(n: number | null | undefined, currency?: string): string {
   if (n == null) return "–";
@@ -63,3 +63,7 @@ export function parseThresholds(raw: string): number[] | null {
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 export const isEmail = (s: string) => EMAIL_RE.test(s.trim());
+
+const pad2 = (n: number) => String(n).padStart(2, "0");
+/** Daily summary time as "HH:MM" (default 08:00). */
+export const summaryTime = (p: UserProfile | null | undefined) => `${pad2(p?.summaryHour ?? 8)}:${pad2(p?.summaryMinute ?? 0)}`;

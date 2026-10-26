@@ -8,7 +8,7 @@ import ThresholdEditor from "../components/ThresholdEditor";
 import { useDocData, useQueryData, useQuotes } from "../hooks/firestore";
 import { addItem, copyWatchlist, deleteWatchlist, removeItem, updateItem, updateUserProfile, updateWatchlist } from "../lib/api";
 import { db } from "../lib/firebase";
-import { athOf, drawdownOf, fmtAgo, fmtDate, fmtPct, fmtPrice, severity } from "../lib/format";
+import { athOf, drawdownOf, fmtAgo, fmtDate, fmtPct, fmtPrice, severity, summaryTime } from "../lib/format";
 import type { AthBasis, Quote, WatchItem, Watchlist } from "../lib/types";
 
 type SortKey = "symbol" | "drawdown" | "change";
@@ -105,7 +105,7 @@ export default function WatchlistPage() {
             <button className={basis === "intraday" ? "active" : ""} onClick={() => setBasis("intraday")} title="Drawdown from the highest intraday price">Intraday ATH</button>
           </div>
           {isOwner && (
-            <label className="toggle" title={profile?.telegramChatId ? `Telegram message every day at ${String(profile.summaryHour ?? 8).padStart(2, "0")}:00 (change in Settings)` : "Connect Telegram in Settings first"}>
+            <label className="toggle" title={profile?.telegramChatId ? `Telegram message every day at ${summaryTime(profile)} (change in Settings)` : "Connect Telegram in Settings first"}>
               <input type="checkbox" checked={!!w.dailySummary} onChange={(e) => updateWatchlist(w.id, { dailySummary: e.target.checked })} />
               Daily Telegram summary
             </label>

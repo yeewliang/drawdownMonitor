@@ -3,7 +3,7 @@ import { useAuth } from "../auth/AuthProvider";
 import McpAccess from "../components/McpAccess";
 import { createTelegramLink, sendTestAlert, unlinkTelegram, updateUserProfile } from "../lib/api";
 import { TELEGRAM_BOT_USERNAME } from "../lib/firebase";
-import { isEmail } from "../lib/format";
+import { isEmail, summaryTime } from "../lib/format";
 
 const browserTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
@@ -92,15 +92,17 @@ export default function SettingsPage() {
             <label>
               Daily summary time (for watchlists with <i>Daily Telegram summary</i> on)
               <div className="row">
-                <select
-                  value={profile?.summaryHour ?? 8}
-                  onChange={(e) => updateUserProfile(uid, { summaryHour: Number(e.target.value), summaryTimeZone: browserTimeZone })}
-                >
-                  {Array.from({ length: 24 }, (_, h) => (
-                    <option key={h} value={h}>{String(h).padStart(2, "0")}:00</option>
-                  ))}
-                </select>
-                <span className="muted small-text">{profile?.summaryTimeZone ?? "Asia/Singapore"}</span>
+                <input
+                  type="time"
+                  step={300}
+                  value={summaryTime(profile)}
+                  onChange={(e) => {
+                    const [h, m] = e.target.value.split(":").map(Number);
+                    if (Number.isNaN(h) || Number.isNaN(m)) return;
+                    updateUserProfile(uid, { summaryHour: h, summaryMinute: m - (m % 5), summaryTimeZone: browserTimeZone });
+                  }}
+                />
+                <span className="muted small-text">{profile?.summaryTimeZone ?? "Asia/Singapore"} · 5-minute steps</span>
               </div>
             </label>
             <div>

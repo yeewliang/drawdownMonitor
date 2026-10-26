@@ -31,9 +31,9 @@ export const refreshQuotes = onSchedule(
   },
 );
 
-/** Daily Telegram summary, sent at each user's chosen hour (checked hourly). */
+/** Daily Telegram summary, sent at each user's chosen time (checked every 5 minutes). */
 export const dailySummary = onSchedule(
-  { schedule: "0 * * * *", secrets: [TELEGRAM_BOT_TOKEN] },
+  { schedule: "every 5 minutes", secrets: [TELEGRAM_BOT_TOKEN] },
   async () => {
     await sendDailySummaries();
   },

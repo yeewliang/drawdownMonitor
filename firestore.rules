@@ -36,6 +36,7 @@ service cloud.firestore {
           && (!('telegramLinkCode' in d) || d.telegramLinkCode == null
               || (d.telegramLinkCode is string && d.telegramLinkCode.matches('^[A-Za-z0-9_-]{16,64}$')))
           && (!('summaryHour' in d) || (d.summaryHour is int && d.summaryHour >= 0 && d.summaryHour <= 23))
+          && (!('summaryMinute' in d) || (d.summaryMinute is int && d.summaryMinute >= 0 && d.summaryMinute <= 59))
           && (!('summaryTimeZone' in d) || (d.summaryTimeZone is string && d.summaryTimeZone.size() <= 64));
       }
 

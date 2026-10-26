@@ -33,6 +33,7 @@ export interface UserProfile {
   telegramUsername?: string | null;
   telegramLinkCode?: string | null;
   summaryHour?: number;
+  summaryMinute?: number;
   summaryTimeZone?: string;
 }
 
