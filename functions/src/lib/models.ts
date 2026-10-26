@@ -45,6 +45,8 @@ export interface WatchlistDoc {
   name: string;
   isPublic: boolean;
   sharedWith: string[];
+  /** Send the owner a Telegram summary of this list every morning. */
+  dailySummary?: boolean;
 }
 
 /** watchlists/{wid}/items/{symbol} */

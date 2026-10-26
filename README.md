@@ -6,6 +6,7 @@ Track how far stocks, ETFs, indexes and crypto are from their all-time high (ATH
 - **Watchlists** of any Yahoo Finance symbol: `AAPL`, `^GSPC` (S&P 500), `^NDX`, `^N225`, `^STI`, `BTC-USD`, `EURUSD=X`, ...
 - **Prices** refreshed every 5 minutes (real-time for US markets, at most ~15 min delay for other exchanges)
 - **Drawdown** from closing ATH or intraday ATH (per-user setting)
+- **Daily summary** on Telegram at 08:00 SGT for any watchlist you switch it on for
 - **Alerts** per symbol at your own thresholds (e.g. -10%, -20%, -30%) via Telegram bot and/or email
 - **Sharing**: share a watchlist read-only with specific people by email, or by public link; recipients can copy it to set their own alerts
 - **MCP server**: connect Claude (or any MCP client) to ask about your watchlists and drawdowns, and manage symbols and alerts by chat
@@ -16,6 +17,7 @@ Track how far stocks, ETFs, indexes and crypto are from their all-time high (ATH
 web/         React + Vite SPA (Vercel)
 functions/   Cloud Functions (Node 22, TypeScript)
   refreshQuotes      every 5 min: fetch prices, update ATH/drawdown, evaluate alerts, notify
+  dailySummary       08:00 SGT: Telegram summary of watchlists with "Daily Telegram summary" on
   onItemCreated      backfill full price history when a symbol is first added
   onWatchlistDeleted delete a list's items
   searchSymbols      symbol search proxy (callable)

@@ -1,6 +1,7 @@
-import { FieldValue } from "firebase-admin/firestore";
+import { FieldValue, QueryDocumentSnapshot } from "firebase-admin/firestore";
 import * as logger from "firebase-functions/logger";
 import { APP_URL } from "../config";
+import type { AthBasis } from "../lib/drawdown";
 import { db } from "../lib/firebase";
 import { QuoteDoc, UserDoc } from "../lib/models";
 import { drawdownFor } from "../lib/quotes";
@@ -100,9 +101,13 @@ async function sendStatus(chatId: number): Promise<void> {
 
   const lists = await db.collection("watchlists").where("ownerId", "==", uid).get();
   if (lists.empty) return sendTelegram(chatId, "You have no watchlists yet.");
+  await sendTelegram(chatId, await drawdownSummary(lists.docs, basis, "📊"));
+}
 
+/** Drawdowns of every symbol in the given lists, deepest first per list. */
+export async function drawdownSummary(lists: QueryDocumentSnapshot[], basis: AthBasis, icon: string): Promise<string> {
   const sections: string[] = [];
-  for (const wl of lists.docs) {
+  for (const wl of lists) {
     const items = await wl.ref.collection("items").get();
     const symbols = items.docs.map((d) => d.id);
     const quotes = symbols.length ? await db.getAll(...symbols.map((s) => db.collection("quotes").doc(s))) : [];
@@ -114,8 +119,5 @@ async function sendStatus(chatId: number): Promise<void> {
       .map(({ q, dd }) => `<code>${escapeHtml(q.symbol.padEnd(10))}</code> -${dd.toFixed(2)}%`);
     sections.push(`<b>${escapeHtml(wl.get("name"))}</b>\n${rows.join("\n") || "<i>empty</i>"}`);
   }
-  await sendTelegram(
-    chatId,
-    `📊 Drawdown from ${basis} ATH\n\n${sections.join("\n\n")}\n\n<a href="${APP_URL.value()}">Open app</a>`,
-  );
+  return `${icon} Drawdown from ${basis} ATH\n\n${sections.join("\n\n")}\n\n<a href="${APP_URL.value()}">Open app</a>`;
 }

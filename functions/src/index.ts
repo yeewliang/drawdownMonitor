@@ -6,7 +6,7 @@ import * as logger from "firebase-functions/logger";
 import { setGlobalOptions } from "firebase-functions/options";
 import { onSchedule } from "firebase-functions/scheduler";
 import { NOTIFY_SECRETS, REGION, TELEGRAM_BOT_TOKEN, TELEGRAM_WEBHOOK_SECRET } from "./config";
-import { handleTelegramUpdate } from "./http/telegramBot";
+import { drawdownSummary, handleTelegramUpdate } from "./http/telegramBot";
 import { refreshAllAndAlert } from "./jobs/refreshAll";
 import { db } from "./lib/firebase";
 import { UserDoc } from "./lib/models";
@@ -16,6 +16,7 @@ import { getProvider } from "./providers";
 import { createApiKey as createKey, listApiKeys as listKeys, revokeApiKey as revokeKey } from "./mcp/apiKeys";
 import { handleMcpRequest } from "./mcp/http";
 import { notifyUser } from "./notify/dispatch";
+import { sendTelegram } from "./notify/telegram";
 
 setGlobalOptions({ region: REGION, maxInstances: 10 });
 
@@ -27,6 +28,26 @@ export const refreshQuotes = onSchedule(
   { schedule: "every 5 minutes", timeoutSeconds: 300, memory: "512MiB", secrets: NOTIFY_SECRETS },
   async () => {
     await refreshAllAndAlert();
+  },
+);
+
+/** Morning Telegram summary of every watchlist with `dailySummary` on, one message per owner. */
+export const dailySummary = onSchedule(
+  { schedule: "0 8 * * *", timeZone: "Asia/Singapore", secrets: [TELEGRAM_BOT_TOKEN] },
+  async () => {
+    const lists = await db.collection("watchlists").where("dailySummary", "==", true).get();
+    const byOwner = new Map<string, typeof lists.docs>();
+    for (const wl of lists.docs) byOwner.set(wl.get("ownerId"), [...(byOwner.get(wl.get("ownerId")) ?? []), wl]);
+
+    for (const [uid, owned] of byOwner) {
+      const user = ((await db.doc(`users/${uid}`).get()).data() ?? {}) as UserDoc;
+      if (!user.telegramChatId || user.notifyTelegram === false) continue;
+      try {
+        await sendTelegram(user.telegramChatId, await drawdownSummary(owned, user.athBasis ?? "close", "☀️ Daily summary ·"));
+      } catch (err) {
+        logger.warn("daily summary failed", { uid, err: String(err) });
+      }
+    }
   },
 );
 

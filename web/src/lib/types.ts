@@ -41,6 +41,7 @@ export interface Watchlist {
   name: string;
   isPublic: boolean;
   sharedWith: string[];
+  dailySummary?: boolean;
   createdAt?: Timestamp;
 }
 

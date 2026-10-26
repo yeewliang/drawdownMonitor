@@ -104,6 +104,12 @@ export default function WatchlistPage() {
             <button className={basis === "close" ? "active" : ""} onClick={() => setBasis("close")} title="Drawdown from the highest daily close">Closing ATH</button>
             <button className={basis === "intraday" ? "active" : ""} onClick={() => setBasis("intraday")} title="Drawdown from the highest intraday price">Intraday ATH</button>
           </div>
+          {isOwner && (
+            <label className="toggle" title={profile?.telegramChatId ? "Telegram message every day at 08:00 SGT" : "Connect Telegram in Settings first"}>
+              <input type="checkbox" checked={!!w.dailySummary} onChange={(e) => updateWatchlist(w.id, { dailySummary: e.target.checked })} />
+              Daily Telegram summary
+            </label>
+          )}
           {isOwner && <button className="btn" onClick={() => setSharing(true)}>Share</button>}
           {isOwner && <button className="btn danger" onClick={onDelete}>Delete</button>}
           {!isOwner && user && <button className="btn primary" onClick={onCopy}>Copy to my watchlists</button>}

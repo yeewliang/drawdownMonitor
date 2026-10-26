@@ -60,7 +60,7 @@ export async function createWatchlist(user: User, name: string): Promise<string>
   return ref.id;
 }
 
-export function updateWatchlist(id: string, data: Partial<Pick<Watchlist, "name" | "isPublic">>) {
+export function updateWatchlist(id: string, data: Partial<Pick<Watchlist, "name" | "isPublic" | "dailySummary">>) {
   return updateDoc(doc(db, "watchlists", id), data);
 }
 

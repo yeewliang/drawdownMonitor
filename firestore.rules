@@ -70,7 +70,8 @@ service cloud.firestore {
         return d.keys().hasAll(['ownerId', 'name', 'isPublic', 'sharedWith'])
           && d.name is string && d.name.size() > 0 && d.name.size() <= 80
           && d.isPublic is bool
-          && d.sharedWith is list && d.sharedWith.size() <= 50;
+          && d.sharedWith is list && d.sharedWith.size() <= 50
+          && (!('dailySummary' in d) || d.dailySummary is bool);
       }
 
       // `get` allows public lists via a direct link; `list` (queries) never

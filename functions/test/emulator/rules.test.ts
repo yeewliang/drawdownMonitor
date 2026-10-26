@@ -40,6 +40,9 @@ describe("watchlists", () => {
     await assertSucceeds(setDoc(doc(db, "watchlists/new"), { ownerId: "alice", name: "X", isPublic: false, sharedWith: [] }));
     await assertSucceeds(getDoc(doc(db, "watchlists/private1")));
     await assertSucceeds(updateDoc(doc(db, "watchlists/private1"), { name: "Renamed" }));
+    await assertSucceeds(updateDoc(doc(db, "watchlists/private1"), { dailySummary: true }));
+    await assertFails(updateDoc(doc(db, "watchlists/private1"), { dailySummary: "yes" }));
+    await assertFails(updateDoc(doc(bob(), "watchlists/private1"), { dailySummary: true }));
     await assertSucceeds(deleteDoc(doc(db, "watchlists/private1")));
   });
 
