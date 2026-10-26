@@ -1,0 +1,88 @@
+name: CI/CD
+
+# Web app: Vercel builds and deploys web/ on every push (preview for branches/PRs,
+# production for the default branch). This workflow tests everything and deploys
+# the Firebase side (rules, indexes, functions) from the default branch.
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  FIREBASE_TOOLS: firebase-tools@15.33.0
+
+jobs:
+  functions:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: functions
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: functions/package-lock.json
+      - uses: actions/setup-java@v4 # Firestore emulator
+        with:
+          distribution: temurin
+          java-version: 21
+      - run: npm ci
+      - run: npm install -g ${{ env.FIREBASE_TOOLS }}
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run test:emulator
+      - run: npm run build
+
+  web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - run: npm run build
+
+  deploy-firebase:
+    needs: [functions, web]
+    if: github.event_name == 'push' && github.ref_name == github.event.repository.default_branch
+    runs-on: ubuntu-latest
+    environment: production
+    concurrency:
+      group: deploy-firebase
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: functions/package-lock.json
+      - run: npm ci
+        working-directory: functions
+      # Non-secret function params (secrets live in Secret Manager). Override with repo variables.
+      - name: Write functions/.env.<project>
+        run: |
+          {
+            echo "APP_URL=${{ vars.APP_URL || 'https://drawdown-monitor.vercel.app' }}"
+            echo "SMTP_HOST=${{ vars.SMTP_HOST }}"
+            echo "SMTP_PORT=${{ vars.SMTP_PORT || '587' }}"
+            echo "SMTP_USER=${{ vars.SMTP_USER }}"
+            echo "MAIL_FROM=${{ vars.MAIL_FROM || 'Drawdown Monitor <alerts@example.com>' }}"
+          } > "functions/.env.$(node -p "require('./.firebaserc').projects.default")"
+      - uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+      # --force: remove functions deleted from the source without prompting.
+      - run: npx -y ${{ env.FIREBASE_TOOLS }} deploy --only firestore:rules,firestore:indexes,functions --non-interactive --force
