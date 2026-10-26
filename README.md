@@ -184,7 +184,7 @@ firebase deploy                      # security rules and functions
 git push                             # web app: Vercel builds web/ on every push
 ```
 
-Import the repo in Vercel with Root Directory `web`, and set the `VITE_*` variables from `web/.env.example` (Settings > Environment Variables). Then add the Vercel domain under Firebase Authentication > Settings > **Authorized domains**, and set `APP_URL` in `functions/.env.<project-id>` to it so alert links point at the app.
+Import the repo in Vercel with Root Directory `web`, and set the `VITE_*` variables from `web/.env.example` (Settings > Environment Variables). Set `VITE_FIREBASE_AUTH_DOMAIN` to the Vercel domain itself: `web/vercel.json` proxies `/__/auth/*` to Firebase, so redirect sign-in works on iOS and in-app browsers (add `https://<vercel-domain>/__/auth/handler` to the Google OAuth client's authorized redirect URIs). Then add the Vercel domain under Firebase Authentication > Settings > **Authorized domains**, and set `APP_URL` in `functions/.env.<project-id>` to it so alert links point at the app.
 
 ### Step 8: Register the Telegram webhook
 

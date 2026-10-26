@@ -1,3 +1,7 @@
 {
-  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
+  "rewrites": [
+    { "source": "/__/auth/:path*", "destination": "https://drawdown-monitor-wl.firebaseapp.com/__/auth/:path*" },
+    { "source": "/__/firebase/:path*", "destination": "https://drawdown-monitor-wl.firebaseapp.com/__/firebase/:path*" },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
 }

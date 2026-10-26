@@ -110,6 +110,7 @@ export default function WatchlistPage() {
               Daily Telegram summary
             </label>
           )}
+          {isOwner && <button className="btn" onClick={() => setRenaming(w.name)}>Rename</button>}
           {isOwner && <button className="btn" onClick={() => setSharing(true)}>Share</button>}
           {isOwner && <button className="btn danger" onClick={onDelete}>Delete</button>}
           {!isOwner && user && <button className="btn primary" onClick={onCopy}>Copy to my watchlists</button>}
