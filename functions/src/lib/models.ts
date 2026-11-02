@@ -37,6 +37,8 @@ export interface UserDoc {
   telegramChatId?: number | null;
   telegramUsername?: string | null;
   telegramLinkCode?: string | null;
+  /** Percentage points a drawdown must recover past a threshold before it can alert again. */
+  rearmGapPct?: number;
   /** Time in summaryTimeZone to send the daily summary (minute in 5-minute steps). */
   summaryHour?: number;
   summaryMinute?: number;

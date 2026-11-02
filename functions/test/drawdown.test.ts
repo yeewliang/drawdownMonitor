@@ -67,11 +67,19 @@ describe("evaluateAlerts", () => {
 
   it("re-arms after recovering past the hysteresis band", () => {
     let s = evaluateAlerts([10], 10.2, {}).state;
-    s = evaluateAlerts([10], 9.5, s).state; // still within 1pp: stays fired
+    s = evaluateAlerts([10], 9.8, s).state; // still within 0.2pp: stays fired
     expect(s["10"]).toBe(true);
-    s = evaluateAlerts([10], 8.9, s).state; // recovered: re-armed
+    s = evaluateAlerts([10], 9.79, s).state; // recovered: re-armed
     expect(s["10"]).toBe(false);
     expect(evaluateAlerts([10], 10, s).fired).toBe(10);
+  });
+
+  it("uses a custom re-arm gap", () => {
+    let s = evaluateAlerts([10], 10.2, {}, 0).state;
+    s = evaluateAlerts([10], 9.99, s, 0).state; // gap 0: any recovery re-arms
+    expect(s["10"]).toBe(false);
+    s = evaluateAlerts([10], 10, {}, 2).state;
+    expect(evaluateAlerts([10], 8.5, s, 2).state["10"]).toBe(true); // within 2pp
   });
 
   it("ignores invalid thresholds and handles decimals", () => {

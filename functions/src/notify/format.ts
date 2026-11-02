@@ -62,9 +62,9 @@ ${rows}
     alerts
       .map(
         (a) =>
-          `<b>${escapeHtml(a.symbol)}</b> ${escapeHtml(a.name)}\n` +
+          `<b>${escapeHtml(a.symbol)}</b> ${escapeHtml(a.name)} (${fmtNum(a.price)} ${escapeHtml(a.currency)})\n` +
           `-${fmtPct(a.drawdownPct)} from ATH (crossed -${a.threshold}%)\n` +
-          `Price ${fmtNum(a.price)} ${escapeHtml(a.currency)} | ATH ${fmtNum(a.ath)} on ${fmtDate(a.athDate)}\n` +
+          `ATH ${fmtNum(a.ath)} on ${fmtDate(a.athDate)}\n` +
           `<i>${escapeHtml(a.watchlistName)}</i>`,
       )
       .join("\n\n") +
