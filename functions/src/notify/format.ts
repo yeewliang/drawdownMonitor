@@ -21,7 +21,7 @@ export interface FormattedAlert {
   telegram: string;
 }
 
-const fmtNum = (n: number) => n.toLocaleString("en-US", { maximumFractionDigits: n >= 100 ? 2 : 4 });
+export const fmtNum = (n: number) => n.toLocaleString("en-US", { maximumFractionDigits: n >= 100 ? 2 : 4 });
 const fmtPct = (n: number) => `${n.toFixed(2)}%`;
 const fmtDate = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : "n/a");
 
