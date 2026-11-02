@@ -21,7 +21,7 @@ export interface FormattedAlert {
   telegram: string;
 }
 
-export const fmtNum = (n: number) => n.toLocaleString("en-US", { maximumFractionDigits: n >= 100 ? 2 : 4 });
+const fmtNum = (n: number) => n.toLocaleString("en-US", { maximumFractionDigits: n >= 100 ? 2 : 4 });
 const fmtPct = (n: number) => `${n.toFixed(2)}%`;
 const fmtDate = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : "n/a");
 
@@ -62,9 +62,9 @@ ${rows}
     alerts
       .map(
         (a) =>
-          `<b>${escapeHtml(a.symbol)}</b> ${escapeHtml(a.name)}\n` +
+          `<b>${escapeHtml(a.symbol)}</b> ${escapeHtml(a.name)} (${fmtNum(a.price)} ${escapeHtml(a.currency)})\n` +
           `-${fmtPct(a.drawdownPct)} from ATH (crossed -${a.threshold}%)\n` +
-          `Price ${fmtNum(a.price)} ${escapeHtml(a.currency)} | ATH ${fmtNum(a.ath)} on ${fmtDate(a.athDate)}\n` +
+          `ATH ${fmtNum(a.ath)} on ${fmtDate(a.athDate)}\n` +
           `<i>${escapeHtml(a.watchlistName)}</i>`,
       )
       .join("\n\n") +

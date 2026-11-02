@@ -26,7 +26,7 @@ describe("formatAlerts", () => {
 
   it("escapes HTML in Telegram and email bodies", () => {
     const m = formatAlerts([alert], "https://app.example");
-    expect(m.telegram).toContain("S&amp;P 500 &lt;index&gt;");
+    expect(m.telegram).toContain("S&amp;P 500 &lt;index&gt; (6,900.5 USD)");
     expect(m.html).not.toContain("<index>");
   });
 

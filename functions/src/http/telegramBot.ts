@@ -5,7 +5,6 @@ import type { AthBasis } from "../lib/drawdown";
 import { db } from "../lib/firebase";
 import { QuoteDoc, UserDoc } from "../lib/models";
 import { drawdownFor } from "../lib/quotes";
-import { fmtNum } from "../notify/format";
 import { escapeHtml, sendTelegram } from "../notify/telegram";
 
 interface TgMessage {
@@ -117,7 +116,7 @@ export async function drawdownSummary(lists: QueryDocumentSnapshot[], basis: Ath
       .filter((q): q is QuoteDoc => !!q && q.price != null)
       .map((q) => ({ q, dd: drawdownFor(q, basis) ?? 0 }))
       .sort((a, b) => b.dd - a.dd)
-      .map(({ q, dd }) => `<code>${escapeHtml(q.symbol.padEnd(10))}</code> -${dd.toFixed(2)}% · ${fmtNum(q.price)} ${escapeHtml(q.currency)}`);
+      .map(({ q, dd }) => `<code>${escapeHtml(q.symbol.padEnd(10))}</code> -${dd.toFixed(2)}%`);
     sections.push(`<b>${escapeHtml(wl.get("name"))}</b>\n${rows.join("\n") || "<i>empty</i>"}`);
   }
   return `${icon} Drawdown from ${basis} ATH\n\n${sections.join("\n\n")}\n\n<a href="${APP_URL.value()}">Open app</a>`;
