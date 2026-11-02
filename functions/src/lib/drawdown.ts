@@ -85,13 +85,15 @@ export interface AlertEvaluation {
  * Evaluate alert thresholds (in percent) against the current drawdown.
  *
  * A threshold fires once when the drawdown reaches it, then stays silent
- * until the drawdown recovers below `threshold - REARM_HYSTERESIS_PCT`.
+ * until the drawdown recovers below `threshold - rearmGap` (per-user setting,
+ * default `REARM_HYSTERESIS_PCT`).
  * If several thresholds are crossed at once only the deepest is reported.
  */
 export function evaluateAlerts(
   thresholds: number[],
   drawdown: number,
   prevState: Record<string, boolean> | undefined,
+  rearmGap: number = REARM_HYSTERESIS_PCT,
 ): AlertEvaluation {
   const state: Record<string, boolean> = {};
   let fired: number | null = null;
@@ -105,7 +107,7 @@ export function evaluateAlerts(
     if (!wasFired && drawdown >= t) {
       nowFired = true;
       fired = t;
-    } else if (wasFired && drawdown < t - REARM_HYSTERESIS_PCT) {
+    } else if (wasFired && drawdown < t - rearmGap) {
       nowFired = false;
     }
     state[key] = nowFired;

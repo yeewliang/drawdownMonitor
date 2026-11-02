@@ -64,7 +64,7 @@ async function evaluateAndNotify(items: LoadedItem[], quotes: Map<string, QuoteD
     const dd = drawdownFor(quote, basis);
     if (dd == null) continue;
 
-    const ev = evaluateAlerts(item.data.thresholds, dd, item.data.alertState);
+    const ev = evaluateAlerts(item.data.thresholds, dd, item.data.alertState, user.rearmGapPct);
     if (ev.changed) writer.update(item.ref, { alertState: ev.state });
     if (ev.fired == null) continue;
 

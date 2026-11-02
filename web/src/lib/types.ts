@@ -32,6 +32,7 @@ export interface UserProfile {
   telegramChatId?: number | null;
   telegramUsername?: string | null;
   telegramLinkCode?: string | null;
+  rearmGapPct?: number;
   summaryHour?: number;
   summaryMinute?: number;
   summaryTimeZone?: string;

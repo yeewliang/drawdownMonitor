@@ -116,6 +116,10 @@ describe("users", () => {
     await assertFails(updateDoc(doc(alice(), "users/alice"), { athBasis: "weird" }));
     await assertSucceeds(updateDoc(doc(alice(), "users/alice"), { summaryHour: 7, summaryMinute: 45, summaryTimeZone: "Asia/Singapore" }));
     await assertFails(updateDoc(doc(alice(), "users/alice"), { summaryHour: 24 }));
+    await assertSucceeds(updateDoc(doc(alice(), "users/alice"), { rearmGapPct: 0.2 }));
+    await assertSucceeds(updateDoc(doc(alice(), "users/alice"), { rearmGapPct: 0 }));
+    await assertFails(updateDoc(doc(alice(), "users/alice"), { rearmGapPct: -1 }));
+    await assertFails(updateDoc(doc(alice(), "users/alice"), { rearmGapPct: "1" }));
     await assertFails(updateDoc(doc(alice(), "users/alice"), { summaryMinute: 60 }));
     await assertFails(updateDoc(doc(alice(), "users/alice"), { summaryHour: "7" }));
   });

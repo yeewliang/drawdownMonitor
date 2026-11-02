@@ -74,6 +74,14 @@ describe("evaluateAlerts", () => {
     expect(evaluateAlerts([10], 10, s).fired).toBe(10);
   });
 
+  it("uses a custom re-arm gap", () => {
+    let s = evaluateAlerts([10], 10.2, {}, 0).state;
+    s = evaluateAlerts([10], 9.99, s, 0).state; // gap 0: any recovery re-arms
+    expect(s["10"]).toBe(false);
+    s = evaluateAlerts([10], 10, {}, 2).state;
+    expect(evaluateAlerts([10], 8.5, s, 2).state["10"]).toBe(true); // within 2pp
+  });
+
   it("ignores invalid thresholds and handles decimals", () => {
     const a = evaluateAlerts([0, -5, 150, 7.5, 7.5], 8, undefined);
     expect(a.fired).toBe(7.5);

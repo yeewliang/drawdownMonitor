@@ -63,6 +63,31 @@ export default function SettingsPage() {
       </section>
 
       <section className="card stack">
+        <h3>Alert re-arm gap</h3>
+        <p className="muted">
+          After an alert fires, the drawdown must recover this many percentage points past the threshold before it can alert again
+          (e.g. with 0.2, a -10% alert re-arms below -9.8%). Use 0 to alert on every crossing.
+        </p>
+        <label className="row">
+          <input
+            type="number"
+            min={0}
+            max={10}
+            step={0.1}
+            key={profile?.rearmGapPct ?? 0.2}
+            defaultValue={profile?.rearmGapPct ?? 0.2}
+            onBlur={(e) => {
+              const v = e.target.valueAsNumber;
+              if (Number.isFinite(v) && v >= 0 && v <= 10) updateUserProfile(uid, { rearmGapPct: v });
+              else e.target.value = String(profile?.rearmGapPct ?? 0.2);
+            }}
+            style={{ width: "6rem" }}
+          />
+          <span className="muted small-text">percentage points (0–10)</span>
+        </label>
+      </section>
+
+      <section className="card stack">
         <h3>Email alerts</h3>
         <label className="toggle">
           <input type="checkbox" checked={profile?.notifyEmail !== false} onChange={(e) => updateUserProfile(uid, { notifyEmail: e.target.checked })} />
