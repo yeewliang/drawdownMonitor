@@ -50,7 +50,7 @@ firestore.rules
 ### How alerts work
 
 - Each threshold fires **once** when drawdown reaches it.
-- It re-arms after the drawdown recovers more than 1 percentage point above it (e.g. a -10% alert re-arms once drawdown is below 9%), so a price hovering near a level does not spam you.
+- It re-arms after the drawdown recovers more than 0.2 percentage points above it (e.g. a -10% alert re-arms once drawdown is below 9.8%), so a price hovering near a level does not spam you.
 - If a gap down crosses several thresholds at once, one message reports the deepest one.
 - All alerts for a user in one cycle are combined into a single Telegram message and a single email.
 - Alert state is saved before sending, so a crash can never produce duplicate alerts.

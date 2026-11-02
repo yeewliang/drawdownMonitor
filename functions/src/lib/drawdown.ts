@@ -71,7 +71,7 @@ export function drawdownPct(price: number, ath: AthPoint | null): number | null 
  * A threshold re-arms once the drawdown recovers this many percentage points
  * below it, so a price hovering around a threshold does not spam alerts.
  */
-export const REARM_HYSTERESIS_PCT = 1;
+export const REARM_HYSTERESIS_PCT = 0.2;
 
 export interface AlertEvaluation {
   /** Updated per-threshold "already fired" state. */
