@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatAlerts } from "../src/notify/format";
+import { formatAlerts, formatStatusLine } from "../src/notify/format";
 
 const alert = {
   symbol: "^GSPC",
@@ -33,5 +33,19 @@ describe("formatAlerts", () => {
   it("summarises multiple alerts in the subject", () => {
     const m = formatAlerts([alert, { ...alert, symbol: "AAPL" }], "https://app.example");
     expect(m.subject).toBe("2 drawdown alerts: ^GSPC, AAPL");
+  });
+});
+
+describe("formatStatusLine", () => {
+  it("shows drawdown and current price with currency", () => {
+    expect(formatStatusLine("^GSPC", 1.3603, 7712.57, "USD")).toBe("<code>^GSPC     </code> -1.36% (7,712.57 USD)");
+  });
+
+  it("keeps precision for small prices and escapes HTML", () => {
+    expect(formatStatusLine("X<Y", 50, 0.12345, "A&B")).toBe("<code>X&lt;Y       </code> -50.00% (0.1235 A&amp;B)");
+  });
+
+  it("omits a missing currency", () => {
+    expect(formatStatusLine("BTC-USD", 0, 82733.99, "")).toBe("<code>BTC-USD   </code> -0.00% (82,733.99)");
   });
 });

@@ -25,6 +25,12 @@ const fmtNum = (n: number) => n.toLocaleString("en-US", { maximumFractionDigits:
 const fmtPct = (n: number) => `${n.toFixed(2)}%`;
 const fmtDate = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : "n/a");
 
+/** One line of the Telegram /status and daily summary: symbol, drawdown and current price. */
+export function formatStatusLine(symbol: string, drawdownPct: number, price: number, currency: string): string {
+  const cur = currency ? ` ${escapeHtml(currency)}` : "";
+  return `<code>${escapeHtml(symbol.padEnd(10))}</code> -${drawdownPct.toFixed(2)}% (${fmtNum(price)}${cur})`;
+}
+
 export function formatAlerts(alerts: AlertItem[], appUrl: string): FormattedAlert {
   const subject =
     alerts.length === 1
