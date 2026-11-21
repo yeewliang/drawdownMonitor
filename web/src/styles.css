@@ -174,7 +174,9 @@ table.grid { width: 100%; border-collapse: collapse; }
 .kpi-sub { font-size: 0.8rem; color: var(--muted); font-variant-numeric: tabular-nums; }
 .section-head h3 .up, .section-head h3 .down { font-variant-numeric: tabular-nums; margin-left: 6px; }
 .section-head { flex-wrap: wrap; gap: 8px; }
-.chart { position: relative; }
+.chart { position: relative; border-radius: 8px; }
+.chart:focus-visible { outline: 2px solid color-mix(in srgb, var(--primary) 50%, transparent); outline-offset: 4px; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 .chart-empty { min-height: 240px; display: grid; place-items: center; }
 .chart-grid { stroke: var(--border); stroke-width: 1; }
 .chart-zero { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 3 3; }

@@ -1,6 +1,6 @@
 import type { Timestamp } from "firebase-admin/firestore";
 import type { AthBasis } from "./drawdown";
-import type { PortfolioPosition, PortfolioSummary, ReturnHistory } from "./portfolio";
+import type { LivePeak, PortfolioPosition, PortfolioSummary, ReturnHistory } from "./portfolio";
 
 /** quotes/{symbol}: written by functions only. */
 export interface QuoteDoc {
@@ -69,6 +69,8 @@ export interface PortfolioDoc {
   summary: PortfolioSummary;
   positions: PortfolioPosition[];
   history: ReturnHistory;
+  /** Highest live return index seen between snapshots (written by the refresh job). */
+  livePeak?: LivePeak | null;
   /** Drawdown-from-peak alerts on the return index. */
   thresholds?: number[];
   alertsEnabled?: boolean;

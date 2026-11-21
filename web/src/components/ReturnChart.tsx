@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { fmtPct } from "../lib/format";
 import { fmtDay, fmtMoney, type ChartPoint } from "../lib/portfolio";
+export type { ChartPoint };
 
 interface Props {
   points: ChartPoint[];
@@ -77,9 +78,38 @@ export default function ReturnChart({ points, currency }: Props) {
     setHover(best);
   }
 
+  function onKey(e: React.KeyboardEvent<HTMLDivElement>) {
+    const n = points.length;
+    const cur = hover ?? n - 1;
+    const step = e.shiftKey ? 10 : 1;
+    const next =
+      e.key === "ArrowLeft" ? Math.max(0, cur - step)
+      : e.key === "ArrowRight" ? Math.min(n - 1, cur + step)
+      : e.key === "Home" ? 0
+      : e.key === "End" ? n - 1
+      : e.key === "Escape" ? null
+      : undefined;
+    if (next === undefined) return;
+    e.preventDefault();
+    setHover(next);
+  }
+
+  const readout = (p: ChartPoint) =>
+    `${fmtDay(p.date)}: ${fmtPct(p.ret, true)} return${p.nav != null ? `, account value ${fmtMoney(p.nav, currency)}` : ""}`;
+
   return (
-    <div ref={wrap} className="chart">
-      <svg width="100%" height={H} viewBox={`0 0 ${width} ${H}`} role="img" aria-label={`Cumulative time-weighted return, ending at ${fmtPct(last.ret, true)}`}>
+    <div
+      ref={wrap}
+      className="chart"
+      tabIndex={0}
+      role="group"
+      aria-label={`Return history from ${fmtDay(points[0].date)} to ${fmtDay(last.date)}, ending at ${fmtPct(last.ret, true)}. Use left and right arrow keys to read each day; Home and End jump to the ends.`}
+      onKeyDown={onKey}
+      onFocus={() => hover == null && setHover(points.length - 1)}
+      onBlur={() => setHover(null)}
+    >
+      <span className="sr-only" aria-live="polite">{h ? readout(h) : ""}</span>
+      <svg width="100%" height={H} viewBox={`0 0 ${width} ${H}`} aria-hidden="true">
         {geo.ticks.map((v) => (
           <g key={v}>
             <line x1={geo.left} x2={width - M.right} y1={geo.y(v)} y2={geo.y(v)} className={v === 0 ? "chart-zero" : "chart-grid"} />

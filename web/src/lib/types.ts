@@ -80,6 +80,10 @@ export interface PortfolioPosition {
   dailyPnl: number | null;
   currency: string;
   assetClass: string | null;
+  /** 100 for a US option, 1 for a share. Missing on snapshots saved before it existed. */
+  multiplier?: number;
+  /** Base currency per unit of `currency` at sync. */
+  fxToBase?: number;
 }
 
 export interface Portfolio {
@@ -101,6 +105,8 @@ export interface Portfolio {
   positions: PortfolioPosition[];
   /** Time-weighted return index (1.0 at the first date) and account value. */
   history: { dates: string[]; index: number[]; nav: (number | null)[] };
+  /** Highest live return index seen since the last sync. */
+  livePeak?: { index: number; at: string } | null;
   thresholds?: number[];
   alertsEnabled?: boolean;
   alertState?: Record<string, boolean>;

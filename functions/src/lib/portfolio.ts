@@ -22,13 +22,20 @@ export interface PortfolioPosition {
   brokerSymbol: string;
   contractId: number | null;
   quantity: number;
+  /** Broker's average price, as reported (per share or per contract). */
   avgCost: number;
   marketPrice: number;
+  /** Broker's market value at sync, in the position's currency. */
   marketValue: number;
   unrealizedPnl: number;
   dailyPnl: number | null;
+  /** Position currency. Values above are in it. */
   currency: string;
   assetClass: string | null;
+  /** Value per unit of price per unit of quantity: 100 for a US option, 1 for a share. Derived from the broker's value. */
+  multiplier: number;
+  /** Units of base currency per unit of `currency` at sync (1 when they match). */
+  fxToBase: number;
 }
 
 /**
@@ -42,6 +49,13 @@ export interface ReturnHistory {
   nav: (number | null)[];
 }
 
+/** Highest live return index seen between snapshots, on the same scale as the history. */
+export interface LivePeak {
+  index: number;
+  /** ISO time it was seen. */
+  at: string;
+}
+
 /** One performance period as IBKR PortfolioAnalyst returns it. */
 export interface PerformancePeriodInput {
   start_date?: string;
@@ -51,25 +65,45 @@ export interface PerformancePeriodInput {
   nav?: number[];
 }
 
-export interface PortfolioValuation {
-  /** Value from live quotes where newer than the snapshot, else snapshot prices. */
-  value: number;
-  /** Value at snapshot prices. */
-  snapshotValue: number;
-  /** Positions priced from a live quote. */
-  livePriced: number;
-  /** Sum of quantity x (price - previous close) for live-priced positions; snapshot daily P&L otherwise. */
-  dayPnl: number | null;
-  unrealizedPnl: number;
-  costBasis: number;
-}
-
 export interface LiveQuote {
   price: number | null | undefined;
   previousClose?: number | null;
   currency?: string;
   /** Epoch ms of the last trade. */
   marketTimeMs: number;
+}
+
+export interface HoldingValue {
+  symbol: string;
+  /** True when priced from a live quote newer than the snapshot. */
+  live: boolean;
+  /** Price in the position's currency. */
+  price: number;
+  /** Value in the position's currency. */
+  valueNative: number;
+  /** Value in base currency. */
+  value: number;
+  /** Day P&L in base currency. */
+  dayPnl: number | null;
+  /** Unrealized P&L in base currency. */
+  unrealizedPnl: number;
+  /** Unrealized return on cost, in percent. */
+  returnPct: number | null;
+  /** Rate used to convert to base. */
+  fx: number;
+}
+
+export interface PortfolioValuation {
+  holdings: HoldingValue[];
+  /** Value in base currency, from live quotes where newer than the snapshot, else snapshot prices. */
+  value: number;
+  /** Value at snapshot prices and FX, in base currency. */
+  snapshotValue: number;
+  /** Positions priced from a live quote. */
+  livePriced: number;
+  dayPnl: number | null;
+  unrealizedPnl: number;
+  costBasis: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -116,9 +150,26 @@ export function normalizeSummary(s: IbkrSummaryInput): PortfolioSummary {
   };
 }
 
+/** Yahoo FX symbol giving units of `base` per unit of `cur`, e.g. GBPUSD=X. */
+export const fxSymbol = (cur: string, base: string) => `${cur.toUpperCase()}${base.toUpperCase()}=X`;
+
+/**
+ * Value per unit of price per unit of quantity, from the broker's own value
+ * (100 for a US equity option). Near-integers are snapped to remove rounding.
+ */
+export function inferMultiplier(quantity: number, price: number, marketValue: number): number {
+  const base = Math.abs(quantity * price);
+  const mv = Math.abs(marketValue);
+  if (!(base > 0) || !(mv > 0)) return 1;
+  const m = mv / base;
+  const r = Math.round(m);
+  return r >= 1 && Math.abs(m - r) / r < 0.01 ? r : m;
+}
+
 export function normalizePositions(
   positions: IbkrPositionInput[],
   toSymbol: (raw: string) => string | null,
+  fxToBase: (currency: string) => number = () => 1,
 ): { positions: PortfolioPosition[]; rejected: string[] } {
   const out: PortfolioPosition[] = [];
   const rejected: string[] = [];
@@ -128,21 +179,26 @@ export function normalizePositions(
       rejected.push(p.contract_description);
       continue;
     }
+    const marketPrice = num(p.market_price) ?? 0;
+    const marketValue = num(p.market_value) ?? 0;
+    const currency = (p.currency || "USD").toUpperCase();
     out.push({
       symbol,
       brokerSymbol: p.contract_description,
       contractId: num(p.contract_id),
       quantity: p.position,
       avgCost: num(p.average_price) ?? 0,
-      marketPrice: num(p.market_price) ?? 0,
-      marketValue: num(p.market_value) ?? 0,
+      marketPrice,
+      marketValue,
       unrealizedPnl: num(p.unrealized_pnl) ?? 0,
       dailyPnl: num(p.daily_pnl),
-      currency: p.currency || "USD",
+      currency,
       assetClass: p.asset_class ?? null,
+      multiplier: inferMultiplier(p.position, marketPrice, marketValue),
+      fxToBase: fxToBase(currency),
     });
   }
-  out.sort((a, b) => b.marketValue - a.marketValue);
+  out.sort((a, b) => b.marketValue * b.fxToBase - a.marketValue * a.fxToBase);
   return { positions: out, rejected };
 }
 
@@ -182,25 +238,27 @@ function historyFromPeriod(p: PerformancePeriodInput): ReturnHistory {
   return { dates, index: dates.map((d) => byDate.get(d)!.index), nav: dates.map((d) => byDate.get(d)!.nav) };
 }
 
+export interface MergeResult {
+  history: ReturnHistory;
+  /** "chained" keeps the stored scale; "replaced" starts a new scale (no overlap). */
+  mode: "chained" | "replaced";
+}
+
 /**
- * Append `incoming` to `stored`, rescaling it to join at the latest date the
- * two share, so history keeps growing past IBKR's one-year window. Dates in
- * `incoming` on or after the join point replace the stored ones. With no
- * overlap the incoming series replaces the stored one (a gap would make the
- * chained return wrong).
+ * Append `incoming` to `stored`, rescaling it to join at the earliest date the
+ * two share, so history keeps growing past IBKR's one-year window. Where they
+ * overlap the newer IBKR numbers win. With no overlap the incoming series
+ * replaces the stored one (a gap would make the chained return wrong).
+ * Returns null when `incoming` ends before `stored` does: it is stale, and
+ * merging it would drop newer stored points.
  */
-export function mergeHistory(stored: ReturnHistory | null | undefined, incoming: ReturnHistory, maxPoints = 4000): ReturnHistory {
-  if (!stored || !stored.dates.length) return trim(incoming, maxPoints);
-  if (!incoming.dates.length) return stored;
+export function mergeHistory(stored: ReturnHistory | null | undefined, incoming: ReturnHistory, maxPoints = 4000): MergeResult | null {
+  if (!incoming.dates.length) return null;
+  if (!stored || !stored.dates.length) return { history: trim(incoming, maxPoints), mode: "replaced" };
+  if (incoming.dates[incoming.dates.length - 1] < stored.dates[stored.dates.length - 1]) return null;
   const storedIdx = new Map(stored.dates.map((d, i) => [d, i]));
-  let join = -1;
-  for (let i = incoming.dates.length - 1; i >= 0; i--) {
-    if (storedIdx.has(incoming.dates[i]) && incoming.dates[i] <= stored.dates[stored.dates.length - 1]) {
-      // Prefer the earliest shared date, so the newest IBKR numbers win where they overlap.
-      join = i;
-    }
-  }
-  if (join < 0) return trim(incoming, maxPoints);
+  const join = incoming.dates.findIndex((d) => storedIdx.has(d));
+  if (join < 0) return { history: trim(incoming, maxPoints), mode: "replaced" };
   const at = storedIdx.get(incoming.dates[join])!;
   const scale = stored.index[at] / incoming.index[join];
   const out: ReturnHistory = {
@@ -213,7 +271,7 @@ export function mergeHistory(stored: ReturnHistory | null | undefined, incoming:
     out.index.push(round(incoming.index[i] * scale, 8));
     out.nav.push(incoming.nav[i]);
   }
-  return trim(out, maxPoints);
+  return { history: trim(out, maxPoints), mode: "chained" };
 }
 
 function trim(h: ReturnHistory, max: number): ReturnHistory {
@@ -223,13 +281,35 @@ function trim(h: ReturnHistory, max: number): ReturnHistory {
 }
 
 /**
- * Value the portfolio with live quotes. A quote is used only when its last
- * trade is newer than the snapshot and in the position's currency; otherwise
- * the snapshot price stands (e.g. a weekend sync after Friday's close).
+ * A quote counts as live only if it is newer than the snapshot, priced, and in
+ * the expected currency. The comparison is exact: Yahoo's "GBp" (pence) is
+ * not "GBP".
+ */
+export function usableQuote(q: LiveQuote | undefined, syncedAtMs: number, currency: string): q is LiveQuote & { price: number } {
+  return !!q && isPos(q.price) && q.marketTimeMs > syncedAtMs && (!q.currency || q.currency === currency);
+}
+
+const DERIVATIVE_CLASSES = new Set(["OPT", "FOP", "FUT", "WAR", "IOPT", "CFD"]);
+
+/**
+ * Whether a holding can be priced from a Yahoo quote at all. Derivatives
+ * (options, futures, warrants) cannot: Yahoo quotes for their symbol would be
+ * the underlying, so they keep the broker's value from the last sync.
+ */
+export function livePriceable(p: Pick<PortfolioPosition, "assetClass" | "multiplier">): boolean {
+  return (p.multiplier || 1) === 1 && !DERIVATIVE_CLASSES.has((p.assetClass ?? "").toUpperCase());
+}
+
+/**
+ * Value the portfolio in base currency. Each holding uses a live quote only
+ * when `usableQuote` allows it, otherwise the broker's own value at sync
+ * (which already includes any contract multiplier). Live FX quotes are used
+ * the same way, else the rate stored at sync.
  */
 export function valuePortfolio(
   positions: PortfolioPosition[],
   cash: number,
+  baseCurrency: string,
   syncedAtMs: number,
   quotes: Record<string, LiveQuote | undefined>,
 ): PortfolioValuation {
@@ -240,27 +320,55 @@ export function valuePortfolio(
   let hasDay = false;
   let unrealizedPnl = 0;
   let costBasis = 0;
+  const holdings: HoldingValue[] = [];
+
   for (const p of positions) {
+    const fxStored = p.fxToBase || 1;
+    let fx = fxStored;
+    if (p.currency !== baseCurrency) {
+      const fq = quotes[fxSymbol(p.currency, baseCurrency)];
+      if (usableQuote(fq, syncedAtMs, baseCurrency)) fx = fq.price;
+    }
     const q = quotes[p.symbol];
-    const live = !!q && isPos(q.price) && q.marketTimeMs > syncedAtMs && (!q.currency || q.currency === p.currency);
-    const price = live ? (q!.price as number) : p.marketPrice;
-    const mv = p.quantity * price;
-    value += mv;
-    snapshotValue += p.marketValue;
-    costBasis += p.quantity * p.avgCost;
-    unrealizedPnl += mv - p.quantity * p.avgCost;
+    const live = livePriceable(p) && usableQuote(q, syncedAtMs, p.currency);
+    const mult = p.multiplier || 1;
+    const price = live ? q.price : p.marketPrice;
+    const valueNative = live ? p.quantity * price * mult : p.marketValue;
+    // Cost from the broker's own figures, so it is right whatever unit avgCost is in.
+    const costNative = p.marketValue - p.unrealizedPnl;
+    const unrNative = valueNative - costNative;
+
+    let day: number | null = null;
     if (live) {
-      livePriced++;
-      if (isPos(q!.previousClose)) {
-        dayPnl += p.quantity * (price - (q!.previousClose as number));
-        hasDay = true;
-      }
+      if (isPos(q.previousClose)) day = p.quantity * (price - (q.previousClose as number)) * mult * fx;
     } else if (p.dailyPnl != null) {
-      dayPnl += p.dailyPnl;
+      day = p.dailyPnl * fx;
+    }
+    if (day != null) {
+      dayPnl += day;
       hasDay = true;
     }
+    if (live) livePriced++;
+
+    const v = valueNative * fx;
+    value += v;
+    snapshotValue += p.marketValue * fxStored;
+    unrealizedPnl += unrNative * fx;
+    costBasis += costNative * fx;
+    holdings.push({
+      symbol: p.symbol,
+      live,
+      price,
+      valueNative: round(valueNative, 2),
+      value: round(v, 2),
+      dayPnl: day == null ? null : round(day, 2),
+      unrealizedPnl: round(unrNative * fx, 2),
+      returnPct: costNative ? round((unrNative / Math.abs(costNative)) * 100, 4) : null,
+      fx,
+    });
   }
   return {
+    holdings,
     value: round(value, 2),
     snapshotValue: round(snapshotValue, 2),
     livePriced,
@@ -270,23 +378,34 @@ export function valuePortfolio(
   };
 }
 
+/** Drawdown of a holding's chosen price from its ATH, or null if the quote is in another currency. */
+export function holdingDrawdown(price: number, ath: number | null | undefined, quoteCurrency: string | undefined, currency: string): number | null {
+  if (!isPos(price) || !isPos(ath)) return null;
+  if (quoteCurrency && quoteCurrency !== currency) return null;
+  return round((1 - price / Math.max(ath as number, price)) * 100, 4);
+}
+
 export interface PortfolioDrawdown {
   /** Positive percent below the peak of the return index (0 = at the peak). */
   drawdownPct: number;
+  /** Date of the peak in history, "live" if the peak was seen between snapshots, null if at the peak now. */
   peakDate: string | null;
   /** Live index: last stored index moved by the change in value since the snapshot. */
   currentIndex: number;
+  /** The peak index, history and live combined. */
+  peakIndex: number;
 }
 
 /**
  * Drawdown of the time-weighted return index from its peak. The live index
  * scales the last stored point by value / snapshotValue, which is valid
- * because no cash flows happen between a snapshot and a live quote.
+ * because no cash flows happen between a snapshot and a live quote. The
+ * peak includes `livePeak`, the highest live index seen since, so a rise
+ * and fall between snapshots is still measured.
  */
-export function portfolioDrawdown(h: ReturnHistory, value: number, snapshotValue: number): PortfolioDrawdown | null {
+export function portfolioDrawdown(h: ReturnHistory, value: number, snapshotValue: number, livePeak?: LivePeak | null): PortfolioDrawdown | null {
   if (!h.dates.length || !(snapshotValue > 0)) return null;
-  const last = h.index[h.index.length - 1];
-  const current = last * (value / snapshotValue);
+  const current = h.index[h.index.length - 1] * (value / snapshotValue);
   let peak = -Infinity;
   let peakDate: string | null = null;
   h.index.forEach((v, i) => {
@@ -295,13 +414,27 @@ export function portfolioDrawdown(h: ReturnHistory, value: number, snapshotValue
       peakDate = h.dates[i];
     }
   });
-  if (current >= peak) return { drawdownPct: 0, peakDate: "live", currentIndex: round(current, 8) };
-  return { drawdownPct: round((1 - current / peak) * 100, 4), peakDate, currentIndex: round(current, 8) };
+  if (livePeak && livePeak.index > peak) {
+    peak = livePeak.index;
+    peakDate = "live";
+  }
+  if (current >= peak) return { drawdownPct: 0, peakDate: null, currentIndex: round(current, 8), peakIndex: round(current, 8) };
+  return { drawdownPct: round((1 - current / peak) * 100, 4), peakDate, currentIndex: round(current, 8), peakIndex: round(peak, 8) };
 }
 
-/** Return over the window starting at `fromDate` (inclusive), in percent. */
+/**
+ * Index of the first point of a window starting at `fromDate`: the point on
+ * that date, or else the last one before it, so the first day's move counts.
+ */
+export function windowStart(dates: string[], fromDate: string): number {
+  const i = dates.findIndex((d) => d >= fromDate);
+  if (i < 0) return -1;
+  return dates[i] > fromDate && i > 0 ? i - 1 : i;
+}
+
+/** Return over the window starting at `fromDate`, in percent. */
 export function returnSince(h: ReturnHistory, fromDate: string): number | null {
-  const i = h.dates.findIndex((d) => d >= fromDate);
+  const i = windowStart(h.dates, fromDate);
   if (i < 0 || i === h.dates.length - 1) return null;
   return round((h.index[h.index.length - 1] / h.index[i] - 1) * 100, 4);
 }

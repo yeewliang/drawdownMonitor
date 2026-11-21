@@ -4,8 +4,8 @@ import { z } from "zod";
 import { AthBasis } from "../lib/drawdown";
 import { db } from "../lib/firebase";
 import { ItemDoc, PortfolioDoc, QuoteDoc, UserDoc, WatchlistDoc } from "../lib/models";
-import { returnSince } from "../lib/portfolio";
-import { evaluatePortfolio, liveQuotes, portfolioRef, saveSnapshot } from "../lib/portfolioStore";
+import { fxSymbol, holdingDrawdown, livePriceable, returnSince } from "../lib/portfolio";
+import { evaluatePortfolio, liveQuotes, portfolioRef, portfolioSymbols, saveSnapshot, SnapshotError } from "../lib/portfolioStore";
 import { drawdownFor } from "../lib/quotes";
 import { normalizeSymbol } from "../lib/symbols";
 import { SymbolMatch } from "../providers";
@@ -273,8 +273,8 @@ export function buildMcpServer(caller: McpCaller, deps: McpDeps): McpServer {
         "Store the user's current brokerage portfolio so the app can show holdings, P&L, return history and drawdown from peak, and send portfolio drawdown alerts. " +
         "Pass the IBKR connector's answers as they come: `summary` from get_account_summary, `positions` from get_account_positions (its `positions` list), " +
         "and `performance_periods` from get_pa_performance_all_periods (the `periods` object under accounts.<account>). " +
-        "Positions are priced live with Yahoo Finance symbols. US tickers match IBKR; for other exchanges set `yahoo_symbol` on the position " +
-        "(e.g. CNDX on LSE is CNDX.L, D05 on SGX is D05.SI). Replaces the previous snapshot; return history is extended, not lost.",
+        "Holdings in other currencies are converted to the account currency. Positions are priced live with Yahoo Finance symbols. US tickers match IBKR; for other exchanges set `yahoo_symbol` on the position " +
+        "(e.g. CNDX on LSE is CNDX.L, D05 on SGX is D05.SI). Options and futures keep their IBKR value until the next sync. Replaces the previous snapshot; return history is extended, not lost.",
       inputSchema: {
         broker: z.string().max(40).optional().describe("Defaults to IBKR."),
         summary: z.object({
@@ -316,30 +316,43 @@ export function buildMcpServer(caller: McpCaller, deps: McpDeps): McpServer {
               nav: z.array(z.number()).max(1000).optional(),
             }),
           )
-          .optional(),
+          .describe("Required: the live drawdown is measured against this return history, so it must run up to now."),
       },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },
     ({ broker, summary, positions, performance_periods }) =>
       run(async () => {
-        const { doc, rejected } = await saveSnapshot(caller.uid, {
-          broker,
-          summary,
-          positions,
-          performancePeriods: performance_periods,
-        });
+        // Exchange rates for holdings not in the account's base currency.
+        const base = (summary.currency ?? "USD").toUpperCase();
+        const fxToBase: Record<string, number> = {};
+        const foreign = [...new Set(positions.map((x) => (x.currency ?? "USD").toUpperCase()).filter((c) => c !== base))];
+        for (const cur of foreign) {
+          const fq = await deps.getQuote(fxSymbol(cur, base)).catch(() => null);
+          if (fq?.price) fxToBase[cur] = fq.price;
+        }
+        let saved;
+        try {
+          saved = await saveSnapshot(caller.uid, { broker, summary, positions, performancePeriods: performance_periods, fxToBase });
+        } catch (err) {
+          if (err instanceof SnapshotError) throw new ToolError(err.message);
+          throw err;
+        }
+        const { doc, rejected } = saved;
         // Fetch quotes (and full ATH history) for each holding now, so the app shows them at once.
         const quotes = await Promise.all(doc.positions.map((p) => deps.getQuote(p.symbol).catch(() => null)));
-        const noData = doc.positions.filter((_, i) => !quotes[i]).map((p) => p.symbol);
+        const noData = doc.positions
+          .filter((p, i) => livePriceable(p) && (!quotes[i] || (!!quotes[i]!.currency && quotes[i]!.currency !== p.currency)))
+          .map((p) => p.symbol);
         return {
           saved: true,
           positions: doc.positions.length,
           historyPoints: doc.history.dates.length,
           historyFrom: doc.history.dates[0] ?? null,
+          historyTo: doc.history.dates.at(-1) ?? null,
           rejected,
           noMarketData: noData,
           note: noData.length
-            ? `No Yahoo Finance data for ${noData.join(", ")}: these use snapshot prices only. Resave with yahoo_symbol set for them.`
+            ? `No usable Yahoo Finance quote for ${noData.join(", ")} (missing or in another currency): these keep their sync price. Resave with yahoo_symbol set for them.`
             : undefined,
         };
       }),
@@ -361,7 +374,8 @@ export function buildMcpServer(caller: McpCaller, deps: McpDeps): McpServer {
         if (!snap.exists) throw new ToolError("No portfolio saved yet. Use save_portfolio_snapshot first.");
         const p = snap.data() as PortfolioDoc;
         const basis = await userBasis(caller.uid);
-        const qs = p.positions.length ? await db.getAll(...p.positions.map((x) => db.collection("quotes").doc(x.symbol))) : [];
+        const syms = portfolioSymbols(p);
+        const qs = syms.length ? await db.getAll(...syms.map((x) => db.collection("quotes").doc(x))) : [];
         const quotes: Record<string, QuoteDoc> = {};
         qs.forEach((s) => s.exists && (quotes[s.id] = s.data() as QuoteDoc));
         const { valuation, drawdown } = evaluatePortfolio(p, liveQuotes(quotes));
@@ -386,20 +400,22 @@ export function buildMcpServer(caller: McpCaller, deps: McpDeps): McpServer {
           peakDate: drawdown?.peakDate ?? null,
           alertThresholds: p.thresholds ?? [],
           alertsEnabled: p.alertsEnabled !== false,
-          holdings: p.positions.map((x) => {
+          holdings: p.positions.map((x, i) => {
+            const h = valuation.holdings[i];
             const q = quotes[x.symbol];
-            const live = q?.price != null && q.marketTime.toMillis() > p.syncedAt.toMillis();
-            const price = live ? q!.price : x.marketPrice;
-            const value = x.quantity * price;
+            const ath = q ? (basis === "intraday" ? q.athIntraday : q.athClose) : null;
             return {
               symbol: x.symbol,
+              currency: x.currency,
               quantity: x.quantity,
-              price,
-              priceSource: live ? "live" : "snapshot",
-              value: Math.round(value * 100) / 100,
-              weightPct: valuation.value ? Math.round((value / valuation.value) * 10000) / 100 : null,
-              returnPct: x.avgCost ? Math.round(((price / x.avgCost) - 1) * 10000) / 100 : null,
-              drawdownFromAthPct: q ? drawdownFor(q, basis) : null,
+              price: h.price,
+              priceSource: h.live ? "live" : "snapshot",
+              valueNative: h.valueNative,
+              value: h.value,
+              weightPct: valuation.value ? Math.round((h.value / valuation.value) * 10000) / 100 : null,
+              unrealizedPnl: h.unrealizedPnl,
+              returnPct: h.returnPct == null ? null : Math.round(h.returnPct * 100) / 100,
+              drawdownFromAthPct: livePriceable(x) ? holdingDrawdown(h.price, ath, q?.currency, x.currency) : null,
             };
           }),
         };

@@ -7,7 +7,7 @@ import ThresholdEditor from "../components/ThresholdEditor";
 import { useDocData, useQuotes } from "../hooks/firestore";
 import { updatePortfolioAlerts } from "../lib/api";
 import { db } from "../lib/firebase";
-import { athOf, drawdownOf, fmtAgo, fmtDate, fmtPct, severity } from "../lib/format";
+import { athOf, fmtAgo, fmtDate, fmtPct, severity } from "../lib/format";
 import { fmtDay, fmtMoney, fmtQty, rangeSeries, viewPortfolio, type Range } from "../lib/portfolio";
 import type { AthBasis, Portfolio, Quote } from "../lib/types";
 
@@ -16,7 +16,12 @@ const RANGES: Range[] = ["1M", "3M", "YTD", "1Y", "ALL"];
 export default function PortfolioPage() {
   const { user, profile } = useAuth();
   const pf = useDocData<Portfolio>(user ? doc(db, "portfolios", user.uid) : null, `pf:${user?.uid}`);
-  const symbols = useMemo(() => pf.data?.positions.map((p) => p.symbol) ?? [], [pf.data]);
+  const symbols = useMemo(() => {
+    const d = pf.data;
+    if (!d) return [];
+    const base = d.baseCurrency || "USD";
+    return [...new Set(d.positions.flatMap((p) => (p.currency !== base ? [p.symbol, `${p.currency}${base}=X`] : [p.symbol])))];
+  }, [pf.data]);
   const quotes = useQuotes(symbols);
   const basis: AthBasis = profile?.athBasis ?? "close";
 
@@ -42,7 +47,7 @@ export function PortfolioContent({ p, quotes, basis, onAlerts }: {
 }) {
   const [range, setRange] = useState<Range>("YTD");
   const cur = p.baseCurrency || "USD";
-  const v = viewPortfolio(p, quotes);
+  const v = viewPortfolio(p, quotes, basis);
   const series = rangeSeries(p, range);
   const rangeRet = series.length > 1 ? series[series.length - 1].ret : null;
   const tone = (n: number | null | undefined) => (n == null ? "" : n > 0 ? "up" : n < 0 ? "down" : "");
@@ -93,7 +98,7 @@ export function PortfolioContent({ p, quotes, basis, onAlerts }: {
         <div className="card kpi">
           <div className="kpi-label">Drawdown from peak</div>
           <div className={`kpi-value dd-${severity(v.drawdownPct)}`}>{v.drawdownPct == null ? "–" : v.drawdownPct < 0.005 ? "At peak" : `-${fmtPct(v.drawdownPct)}`}</div>
-          <div className="kpi-sub">{v.peakDate ? `Peak ${fmtDay(v.peakDate)}` : "Time-weighted return"}</div>
+          <div className="kpi-sub">{v.peakDate === "live" ? "Peak since last sync" : v.peakDate ? `Peak ${fmtDay(v.peakDate)}` : "Time-weighted return"}</div>
         </div>
       </div>
 
@@ -128,7 +133,7 @@ export function PortfolioContent({ p, quotes, basis, onAlerts }: {
             </thead>
             <tbody>
               {v.rows.map((r) => {
-                const dd = drawdownOf(r.quote, basis);
+                const dd = r.athDrawdown;
                 const ath = athOf(r.quote, basis);
                 return (
                   <tr key={r.p.symbol}>
@@ -141,13 +146,16 @@ export function PortfolioContent({ p, quotes, basis, onAlerts }: {
                       {fmtMoney(r.price, r.p.currency)}
                       <div className="muted small-text">{r.live ? <span className="live">● live</span> : "at sync"}</div>
                     </td>
-                    <td className="num">{fmtMoney(r.value, r.p.currency)}</td>
+                    <td className="num">
+                      {fmtMoney(r.value, cur)}
+                      {r.p.currency !== cur && <div className="muted small-text">{fmtMoney(r.valueNative, r.p.currency)}</div>}
+                    </td>
                     <td className="num hide-sm">{v.value ? fmtPct((r.value / v.value) * 100) : "–"}</td>
                     <td className={`num ${tone(r.returnPct)}`}>
                       {fmtPct(r.returnPct, true)}
-                      <div className="small-text">{fmtMoney(r.unrealizedPnl, r.p.currency, true)}</div>
+                      <div className="small-text">{fmtMoney(r.unrealizedPnl, cur, true)}</div>
                     </td>
-                    <td className={`num hide-sm ${tone(r.dayPnl)}`}>{fmtMoney(r.dayPnl, r.p.currency, true)}</td>
+                    <td className={`num hide-sm ${tone(r.dayPnl)}`}>{fmtMoney(r.dayPnl, cur, true)}</td>
                     <td>
                       <div className={`dd dd-${severity(dd)}`} title={ath.value != null ? `ATH ${ath.value} on ${fmtDate(ath.date)}` : undefined}>
                         <span className="dd-value">{dd == null ? "–" : dd === 0 ? "At ATH" : `-${fmtPct(dd)}`}</span>

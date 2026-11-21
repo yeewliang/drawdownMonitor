@@ -174,6 +174,15 @@ describe("portfolio tools", () => {
     expect((await db.doc("portfolios/alice").get()).get("thresholds")).toEqual([5, 15]);
   });
 
+  it("rejects a performance series older than the stored history", async () => {
+    const c = await connect({ uid: "alice", email: "alice@example.com" });
+    await call(c, "save_portfolio_snapshot", snapshot);
+    const stale = { ...snapshot, performance_periods: { "1M": { start_date: "20260101", dates: ["20260601"], cps: [0.1] } } };
+    const r = await call(c, "save_portfolio_snapshot", stale);
+    expect(r.error).toBe(true);
+    expect(r.text).toMatch(/before the stored history/);
+  });
+
   it("reports a missing portfolio as a tool error", async () => {
     const c = await connect({ uid: "bob", email: null });
     expect((await call(c, "get_portfolio")).error).toBe(true);

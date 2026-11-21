@@ -43,7 +43,7 @@ export interface PortfolioAlert {
 export function formatPortfolioAlert(a: PortfolioAlert, appUrl: string): FormattedAlert {
   const link = `${appUrl}/portfolio`;
   const value = `${fmtNum(a.value)} ${a.currency}`;
-  const peak = a.peakDate && a.peakDate !== "live" ? a.peakDate : "n/a";
+  const peak = a.peakDate === "live" ? "since last sync" : a.peakDate ?? "n/a";
   const subject = `Your ${a.broker} portfolio is ${fmtPct(a.drawdownPct)} below its peak`;
   const text =
     `Your ${a.broker} portfolio crossed -${a.threshold}%: it is ${fmtPct(a.drawdownPct)} below its peak (${peak}), ` +

@@ -7,6 +7,7 @@ import { mapPool } from "../lib/pool";
 import { drawdownFor, refreshQuote } from "../lib/quotes";
 import { notifyUser } from "../notify/dispatch";
 import { AlertItem } from "../notify/format";
+import { portfolioSymbols } from "../lib/portfolioStore";
 import { evaluatePortfolioAlerts, loadPortfolios } from "./portfolioAlerts";
 
 const FETCH_CONCURRENCY = 6;
@@ -34,7 +35,7 @@ export async function refreshAllAndAlert(): Promise<{ symbols: number; refreshed
   const symbols = [
     ...new Set([
       ...items.map((i) => i.data.symbol),
-      ...portfolios.flatMap((p) => (p.data.positions ?? []).map((x) => x.symbol)),
+      ...portfolios.flatMap((p) => portfolioSymbols(p.data)),
     ].filter(Boolean)),
   ];
   const settled = await mapPool(symbols, FETCH_CONCURRENCY, (s) => refreshQuote(s));

@@ -1,14 +1,20 @@
-import type { Portfolio, PortfolioPosition, Quote } from "./types";
+import type { AthBasis, Portfolio, PortfolioPosition, Quote } from "./types";
 
 export interface HoldingRow {
   p: PortfolioPosition;
   quote: Quote | undefined;
   live: boolean;
+  /** Price in the holding's currency. */
   price: number;
+  /** Value in the holding's currency. */
+  valueNative: number;
+  /** Value in base currency. */
   value: number;
   dayPnl: number | null;
   unrealizedPnl: number;
   returnPct: number | null;
+  /** Drawdown of `price` from the quote's ATH; null if the quote is in another currency. */
+  athDrawdown: number | null;
 }
 
 export interface PortfolioView {
@@ -20,16 +26,31 @@ export interface PortfolioView {
   costBasis: number;
   livePriced: number;
   drawdownPct: number | null;
+  /** Peak date in history, "live" for a peak seen since the last sync, null when at the peak. */
   peakDate: string | null;
 }
 
+const DERIVATIVE_CLASSES = new Set(["OPT", "FOP", "FUT", "WAR", "IOPT", "CFD"]);
+/** Options, futures and warrants cannot be priced from Yahoo; they keep the broker's value from the last sync. */
+const livePriceable = (p: PortfolioPosition) => (p.multiplier || 1) === 1 && !DERIVATIVE_CLASSES.has((p.assetClass ?? "").toUpperCase());
+
+const fxSymbol = (cur: string, base: string) => `${cur}${base}=X`;
+const isPos = (n: unknown): n is number => typeof n === "number" && Number.isFinite(n) && n > 0;
+
+/** Same rule as the server: newer than the snapshot, priced, and in exactly this currency ("GBp" is not "GBP"). */
+function usable(q: Quote | undefined, synced: number, currency: string): q is Quote & { price: number } {
+  return !!q && isPos(q.price) && (q.marketTime?.toMillis() ?? 0) > synced && (!q.currency || q.currency === currency);
+}
+
 /**
- * Value the portfolio with live quotes. Same rules as the server: a quote is
- * used only if its last trade is newer than the snapshot and in the same
- * currency; otherwise the snapshot price stands.
+ * Value the portfolio in base currency with live quotes, mirroring
+ * functions/src/lib/portfolio.ts: at sync each holding keeps the broker's own
+ * value (multipliers included); live, quantity x price x multiplier; other
+ * currencies are converted with live FX when newer, else the rate at sync.
  */
-export function viewPortfolio(pf: Portfolio, quotes: Record<string, Quote>): PortfolioView {
+export function viewPortfolio(pf: Portfolio, quotes: Record<string, Quote>, basis: AthBasis): PortfolioView {
   const synced = pf.syncedAt?.toMillis() ?? 0;
+  const base = pf.baseCurrency || "USD";
   let value = pf.summary.cash;
   let snapshotValue = pf.summary.cash;
   let dayPnl = 0;
@@ -39,25 +60,49 @@ export function viewPortfolio(pf: Portfolio, quotes: Record<string, Quote>): Por
   let livePriced = 0;
 
   const rows: HoldingRow[] = pf.positions.map((p) => {
+    const fxStored = p.fxToBase || 1;
+    let fx = fxStored;
+    if (p.currency !== base) {
+      const fq = quotes[fxSymbol(p.currency, base)];
+      if (usable(fq, synced, base)) fx = fq.price;
+    }
     const q = quotes[p.symbol];
-    const live = !!q && (q.price ?? 0) > 0 && (q.marketTime?.toMillis() ?? 0) > synced && (!q.currency || q.currency === p.currency);
-    const price = live ? q!.price! : p.marketPrice;
-    const v = p.quantity * price;
-    let d: number | null = p.dailyPnl;
+    const live = livePriceable(p) && usable(q, synced, p.currency);
+    const mult = p.multiplier || 1;
+    const price = live ? q.price : p.marketPrice;
+    const valueNative = live ? p.quantity * price * mult : p.marketValue;
+    const costNative = p.marketValue - p.unrealizedPnl;
+    const unrNative = valueNative - costNative;
+    let d: number | null = null;
     if (live) {
+      if (isPos(q.previousClose)) d = p.quantity * (price - q.previousClose) * mult * fx;
       livePriced++;
-      d = q!.previousClose ? p.quantity * (price - q!.previousClose) : null;
+    } else if (p.dailyPnl != null) {
+      d = p.dailyPnl * fx;
     }
     if (d != null) {
       dayPnl += d;
       hasDay = true;
     }
-    const cost = p.quantity * p.avgCost;
-    value += v;
-    snapshotValue += p.marketValue;
-    unrealizedPnl += v - cost;
-    costBasis += cost;
-    return { p, quote: q, live, price, value: v, dayPnl: d, unrealizedPnl: v - cost, returnPct: cost ? ((v - cost) / cost) * 100 : null };
+    value += valueNative * fx;
+    snapshotValue += p.marketValue * fxStored;
+    unrealizedPnl += unrNative * fx;
+    costBasis += costNative * fx;
+
+    const ath = q ? (basis === "intraday" ? q.athIntraday : q.athClose) : null;
+    const athDrawdown = livePriceable(p) && isPos(ath) && isPos(price) && (!q?.currency || q.currency === p.currency) ? (1 - price / Math.max(ath, price)) * 100 : null;
+    return {
+      p,
+      quote: q,
+      live,
+      price,
+      valueNative,
+      value: valueNative * fx,
+      dayPnl: d,
+      unrealizedPnl: unrNative * fx,
+      returnPct: costNative ? (unrNative / Math.abs(costNative)) * 100 : null,
+      athDrawdown,
+    };
   });
   rows.sort((a, b) => b.value - a.value);
 
@@ -73,8 +118,16 @@ export function viewPortfolio(pf: Portfolio, quotes: Record<string, Quote>): Por
         peakDate = h.dates[i];
       }
     });
-    drawdownPct = current >= peak ? 0 : (1 - current / peak) * 100;
-    if (current >= peak) peakDate = null;
+    if (pf.livePeak && pf.livePeak.index > peak) {
+      peak = pf.livePeak.index;
+      peakDate = "live";
+    }
+    if (current >= peak) {
+      drawdownPct = 0;
+      peakDate = null;
+    } else {
+      drawdownPct = (1 - current / peak) * 100;
+    }
   }
 
   return { rows, value, snapshotValue, dayPnl: hasDay ? dayPnl : null, unrealizedPnl, costBasis, livePriced, drawdownPct, peakDate };
