@@ -1,5 +1,6 @@
 import type { Timestamp } from "firebase-admin/firestore";
 import type { AthBasis } from "./drawdown";
+import type { LivePeak, PortfolioPosition, PortfolioSummary, ReturnHistory } from "./portfolio";
 
 /** quotes/{symbol}: written by functions only. */
 export interface QuoteDoc {
@@ -53,6 +54,27 @@ export interface WatchlistDoc {
   sharedWith: string[];
   /** Send the owner a Telegram summary of this list every morning. */
   dailySummary?: boolean;
+}
+
+/**
+ * portfolios/{uid}: the user's brokerage portfolio, pushed through the MCP
+ * `save_portfolio_snapshot` tool. Functions write everything except the
+ * alert fields, which the owner may change.
+ */
+export interface PortfolioDoc {
+  ownerId: string;
+  broker: string;
+  baseCurrency: string;
+  syncedAt: Timestamp;
+  summary: PortfolioSummary;
+  positions: PortfolioPosition[];
+  history: ReturnHistory;
+  /** Highest live return index seen between snapshots (written by the refresh job). */
+  livePeak?: LivePeak | null;
+  /** Drawdown-from-peak alerts on the return index. */
+  thresholds?: number[];
+  alertsEnabled?: boolean;
+  alertState?: Record<string, boolean>;
 }
 
 /** watchlists/{wid}/items/{symbol} */

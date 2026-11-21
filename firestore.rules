@@ -67,6 +67,20 @@ service cloud.firestore {
     }
 
     // ---------------------------------------------------------------------
+    // Brokerage portfolio, one per user. Written by Cloud Functions (the MCP
+    // save_portfolio_snapshot tool); the owner may only change alert settings.
+    // ---------------------------------------------------------------------
+    match /portfolios/{uid} {
+      allow read: if signedIn() && request.auth.uid == uid;
+      allow create, delete: if false;
+      allow update: if signedIn() && request.auth.uid == uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['thresholds', 'alertsEnabled', 'alertState'])
+        && request.resource.data.thresholds is list && request.resource.data.thresholds.size() <= 10
+        && request.resource.data.alertsEnabled is bool
+        && request.resource.data.alertState is map;
+    }
+
+    // ---------------------------------------------------------------------
     // Watchlists and their items.
     // ---------------------------------------------------------------------
     match /watchlists/{wid} {

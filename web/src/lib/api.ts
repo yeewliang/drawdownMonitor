@@ -121,6 +121,15 @@ export function removeItem(watchlistId: string, symbol: string) {
   return deleteDoc(doc(db, "watchlists", watchlistId, "items", symbol));
 }
 
+// ---------------------------------------------------------------- portfolio
+
+/** Changing thresholds resets alert state so the new levels fire fresh. */
+export function updatePortfolioAlerts(uid: string, data: { thresholds?: number[]; alertsEnabled?: boolean }) {
+  const patch: Record<string, unknown> = { ...data };
+  if (data.thresholds) patch.alertState = {};
+  return updateDoc(doc(db, "portfolios", uid), patch);
+}
+
 // ---------------------------------------------------------------- callables
 
 export async function searchSymbols(query: string): Promise<SymbolMatch[]> {
