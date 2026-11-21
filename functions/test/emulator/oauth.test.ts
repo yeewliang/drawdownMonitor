@@ -168,7 +168,8 @@ describe("MCP SDK client (as Claude)", () => {
     const { body } = await approve("alice", p);
     const back = new URL(body.redirect);
     expect(back.origin + back.pathname).toBe(REDIRECT);
-    expect(back.searchParams.get("state")).toBe(p.state);
+    // The SDK client sends no state; when a client does, it is echoed back (see the cancel test).
+    expect(back.searchParams.get("state")).toBe(p.state ?? null);
 
     await transport.finishAuth(back.searchParams.get("code")!);
     const mcp2 = new Client({ name: "claude-sim", version: "1.0.0" });
