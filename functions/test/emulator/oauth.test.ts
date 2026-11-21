@@ -18,6 +18,9 @@ import { db } from "../../src/lib/firebase";
 import { handleMcpRequest } from "../../src/mcp/http";
 import { handleOAuthRequest, listGrants, revokeGrant } from "../../src/mcp/oauth";
 
+/** fetch's json() is typed unknown; these tests read known OAuth shapes. */
+const json = (r: Response): Promise<any> => r.json();
+
 let base: string;
 let close: () => void;
 const REDIRECT = "https://claude.ai/api/mcp/auth_callback";
@@ -29,7 +32,7 @@ async function idTokenFor(uid: string): Promise<string> {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ token: custom, returnSecureToken: true }),
   });
-  return (await r.json()).idToken;
+  return (await json(r)).idToken;
 }
 
 /** What the consent page does when the user clicks Allow (or Cancel). */
@@ -39,7 +42,7 @@ async function approve(uid: string, params: Record<string, string>, deny = false
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${await idTokenFor(uid)}` },
     body: JSON.stringify({ ...params, deny }),
   });
-  return { status: r.status, body: await r.json() };
+  return { status: r.status, body: await json(r) };
 }
 
 const form = (o: Record<string, string>) => ({
@@ -54,7 +57,7 @@ async function register(extra: Record<string, unknown> = {}) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ client_name: "Claude", redirect_uris: [REDIRECT], ...extra }),
   });
-  return { status: r.status, body: await r.json() };
+  return { status: r.status, body: await json(r) };
 }
 
 function pkce() {
@@ -83,7 +86,7 @@ async function fullGrant(clientExtra: Record<string, unknown> = {}) {
   };
   if (client.client_secret) tokenParams.client_secret = client.client_secret;
   const r = await fetch(`${base}/oauth/token`, form(tokenParams));
-  return { client, code, verifier, status: r.status, tokens: await r.json() };
+  return { client, code, verifier, status: r.status, tokens: await json(r) };
 }
 
 const mcpPost = (token: string) =>
@@ -118,9 +121,9 @@ describe("discovery", () => {
     expect(r.status).toBe(401);
     expect(r.headers.get("www-authenticate")).toContain(`resource_metadata="${base}/.well-known/oauth-protected-resource"`);
 
-    const prm = await (await fetch(`${base}/.well-known/oauth-protected-resource/mcp`)).json();
+    const prm = await json(await fetch(`${base}/.well-known/oauth-protected-resource/mcp`));
     expect(prm).toMatchObject({ resource: `${base}/mcp`, authorization_servers: [base] });
-    const as = await (await fetch(`${base}/.well-known/oauth-authorization-server`)).json();
+    const as = await json(await fetch(`${base}/.well-known/oauth-authorization-server`));
     expect(as).toMatchObject({
       issuer: base,
       authorization_endpoint: `${base}/oauth/authorize`,
@@ -187,7 +190,7 @@ describe("authorization code", () => {
 
     const replay = await fetch(`${base}/oauth/token`, form({ grant_type: "authorization_code", code: g.code, code_verifier: g.verifier, client_id: g.client.client_id }));
     expect(replay.status).toBe(400);
-    expect((await replay.json()).error).toBe("invalid_grant");
+    expect((await json(replay)).error).toBe("invalid_grant");
   });
 
   it("rejects a wrong verifier", async () => {
@@ -196,7 +199,7 @@ describe("authorization code", () => {
     const { body } = await approve("alice", { client_id: client.client_id, redirect_uri: REDIRECT, code_challenge: challenge, code_challenge_method: "S256" });
     const code = new URL(body.redirect).searchParams.get("code")!;
     const r = await fetch(`${base}/oauth/token`, form({ grant_type: "authorization_code", code, code_verifier: pkce().verifier, client_id: client.client_id }));
-    expect((await r.json()).error).toBe("invalid_grant");
+    expect((await json(r)).error).toBe("invalid_grant");
   });
 
   it("requires the client secret for confidential clients", async () => {
@@ -242,7 +245,7 @@ describe("refresh and revoke", () => {
   it("rotates refresh tokens and stops everything when the user disconnects", async () => {
     const g = await fullGrant();
     const r1 = await fetch(`${base}/oauth/token`, form({ grant_type: "refresh_token", refresh_token: g.tokens.refresh_token, client_id: g.client.client_id }));
-    const t2 = await r1.json();
+    const t2 = await json(r1);
     expect(r1.status).toBe(200);
     expect(t2.refresh_token).not.toBe(g.tokens.refresh_token);
 
