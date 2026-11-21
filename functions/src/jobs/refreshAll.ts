@@ -1,18 +1,18 @@
 import { DocumentReference } from "firebase-admin/firestore";
 import * as logger from "firebase-functions/logger";
-import { evaluateAlerts } from "../lib/drawdown";
+import { evaluateAlerts, thresholdKey } from "../lib/drawdown";
 import { db } from "../lib/firebase";
 import { ItemDoc, QuoteDoc, UserDoc, WatchlistDoc } from "../lib/models";
 import { mapPool } from "../lib/pool";
 import { drawdownFor, refreshQuote } from "../lib/quotes";
-import { notifyUser } from "../notify/dispatch";
+import { deliveryFailed, notifyUser } from "../notify/dispatch";
 import { AlertItem } from "../notify/format";
 import { portfolioSymbols } from "../lib/portfolioStore";
 import { evaluatePortfolioAlerts, loadPortfolios } from "./portfolioAlerts";
 
 const FETCH_CONCURRENCY = 6;
 
-interface LoadedItem {
+export interface LoadedItem {
   ref: DocumentReference;
   watchlistId: string;
   data: ItemDoc;
@@ -55,7 +55,7 @@ export async function refreshAllAndAlert(): Promise<{ symbols: number; refreshed
   return { symbols: symbols.length, refreshed: quotes.size, alertsSent };
 }
 
-async function evaluateAndNotify(items: LoadedItem[], quotes: Map<string, QuoteDoc>): Promise<number> {
+export async function evaluateAndNotify(items: LoadedItem[], quotes: Map<string, QuoteDoc>): Promise<number> {
   const candidates = items.filter(
     (i) => i.data.alertsEnabled && (i.data.thresholds?.length ?? 0) > 0 && quotes.has(i.data.symbol),
   );
@@ -64,7 +64,7 @@ async function evaluateAndNotify(items: LoadedItem[], quotes: Map<string, QuoteD
   const users = await loadDocs<UserDoc>("users", candidates.map((i) => i.data.ownerId));
   const watchlists = await loadDocs<WatchlistDoc>("watchlists", candidates.map((i) => i.watchlistId));
 
-  const byOwner = new Map<string, AlertItem[]>();
+  const byOwner = new Map<string, { alert: AlertItem; ref: DocumentReference; key: string }[]>();
   const writer = db.bulkWriter();
 
   for (const item of candidates) {
@@ -85,7 +85,7 @@ async function evaluateAndNotify(items: LoadedItem[], quotes: Map<string, QuoteD
     const ath = basis === "intraday" ? quote.athIntraday : quote.athClose;
     const athDate = basis === "intraday" ? quote.athIntradayDate : quote.athCloseDate;
     const list = byOwner.get(item.data.ownerId) ?? [];
-    list.push({
+    const alert: AlertItem = {
       symbol: quote.symbol,
       name: quote.name,
       watchlistId: item.watchlistId,
@@ -97,7 +97,8 @@ async function evaluateAndNotify(items: LoadedItem[], quotes: Map<string, QuoteD
       ath: ath ?? quote.price,
       athDate: athDate?.toDate() ?? null,
       basis,
-    });
+    };
+    list.push({ alert, ref: item.ref, key: thresholdKey(ev.fired) });
     byOwner.set(item.data.ownerId, list);
   }
 
@@ -105,11 +106,28 @@ async function evaluateAndNotify(items: LoadedItem[], quotes: Map<string, QuoteD
   await writer.close();
 
   let sent = 0;
-  await mapPool([...byOwner.entries()], 4, async ([uid, alerts]) => {
-    await notifyUser(uid, users.get(uid)!, alerts);
-    sent += alerts.length;
+  await mapPool([...byOwner.entries()], 4, async ([uid, entries]) => {
+    let failed = true;
+    try {
+      failed = deliveryFailed(await notifyUser(uid, users.get(uid)!, entries.map((e) => e.alert)));
+    } catch (err) {
+      logger.error("notify failed", { uid, err: String(err) });
+    }
+    if (failed) {
+      // Nothing was delivered: un-fire these thresholds so the next cycle retries.
+      await rollbackFired(entries);
+      return;
+    }
+    sent += entries.length;
   });
   return sent;
+}
+
+/** Set each fired threshold back to not-fired, leaving the rest of alertState alone. */
+async function rollbackFired(entries: { ref: DocumentReference; key: string }[]): Promise<void> {
+  const writer = db.bulkWriter();
+  for (const e of entries) writer.update(e.ref, { [`alertState.${e.key}`]: false });
+  await writer.close().catch((err) => logger.error("alert rollback failed", { err: String(err) }));
 }
 
 async function loadDocs<T>(collection: string, ids: string[]): Promise<Map<string, T>> {

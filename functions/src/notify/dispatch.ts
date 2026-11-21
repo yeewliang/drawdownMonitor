@@ -5,12 +5,11 @@ import { db } from "../lib/firebase";
 import { UserDoc } from "../lib/models";
 import { emailConfigured, sendEmail } from "./email";
 import { AlertItem, FormattedAlert, formatAlerts } from "./format";
+import type { DispatchResult } from "./outcome";
 import { sendTelegram, TelegramError } from "./telegram";
 
-export interface DispatchResult {
-  email: "sent" | "skipped" | "failed";
-  telegram: "sent" | "skipped" | "failed";
-}
+export type { DispatchResult } from "./outcome";
+export { deliveryFailed } from "./outcome";
 
 /** Send one combined message for `alerts` to every channel the user enabled. */
 export async function notifyUser(uid: string, user: UserDoc, alerts: AlertItem[]): Promise<DispatchResult> {

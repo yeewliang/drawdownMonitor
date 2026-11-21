@@ -1,10 +1,10 @@
 import * as logger from "firebase-functions/logger";
 import { APP_URL } from "../config";
-import { evaluateAlerts } from "../lib/drawdown";
+import { evaluateAlerts, thresholdKey } from "../lib/drawdown";
 import { db } from "../lib/firebase";
 import { PortfolioDoc, QuoteDoc, UserDoc } from "../lib/models";
 import { evaluatePortfolio, liveQuotes, portfolioSymbols } from "../lib/portfolioStore";
-import { sendToUser } from "../notify/dispatch";
+import { deliveryFailed, sendToUser } from "../notify/dispatch";
 import { formatPortfolioAlert, PortfolioAlert } from "../notify/format";
 
 export interface LoadedPortfolio {
@@ -45,7 +45,7 @@ export async function evaluatePortfolioAlerts(portfolios: LoadedPortfolio[], fre
   let sent = 0;
   for (const p of portfolios) {
     if (p.data.alertsEnabled === false || !(p.data.thresholds?.length)) continue;
-    let alert: PortfolioAlert | null = null;
+    let alert: (PortfolioAlert & { key: string }) | null = null;
     try {
       alert = await db.runTransaction(async (tx) => {
         const snap = await tx.get(p.ref);
@@ -71,6 +71,7 @@ export async function evaluatePortfolioAlerts(portfolios: LoadedPortfolio[], fre
           peakDate: drawdown.peakDate,
           value: valuation.value,
           currency: d.baseCurrency,
+          key: thresholdKey(ev.fired),
         };
       });
     } catch (err) {
@@ -79,13 +80,19 @@ export async function evaluatePortfolioAlerts(portfolios: LoadedPortfolio[], fre
     }
     if (!alert) continue;
 
+    let failed = true;
     try {
       const user = (await db.doc(`users/${p.uid}`).get()).data() as UserDoc;
-      await sendToUser(p.uid, user, formatPortfolioAlert(alert, APP_URL.value()));
-      sent++;
+      failed = deliveryFailed(await sendToUser(p.uid, user, formatPortfolioAlert(alert, APP_URL.value())));
     } catch (err) {
       logger.error("portfolio alert failed", { uid: p.uid, err: String(err) });
     }
+    if (failed) {
+      // Nothing was delivered: un-fire the threshold so the next cycle retries.
+      await p.ref.update({ [`alertState.${alert.key}`]: false }).catch((err) => logger.error("portfolio alert rollback failed", { uid: p.uid, err: String(err) }));
+      continue;
+    }
+    sent++;
   }
   return sent;
 }
