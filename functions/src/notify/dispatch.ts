@@ -4,7 +4,7 @@ import { APP_URL } from "../config";
 import { db } from "../lib/firebase";
 import { UserDoc } from "../lib/models";
 import { emailConfigured, sendEmail } from "./email";
-import { AlertItem, formatAlerts } from "./format";
+import { AlertItem, FormattedAlert, formatAlerts } from "./format";
 import { sendTelegram, TelegramError } from "./telegram";
 
 export interface DispatchResult {
@@ -14,7 +14,11 @@ export interface DispatchResult {
 
 /** Send one combined message for `alerts` to every channel the user enabled. */
 export async function notifyUser(uid: string, user: UserDoc, alerts: AlertItem[]): Promise<DispatchResult> {
-  const msg = formatAlerts(alerts, APP_URL.value());
+  return sendToUser(uid, user, formatAlerts(alerts, APP_URL.value()));
+}
+
+/** Send an already formatted message to every channel the user enabled. */
+export async function sendToUser(uid: string, user: UserDoc, msg: FormattedAlert): Promise<DispatchResult> {
   const result: DispatchResult = { email: "skipped", telegram: "skipped" };
 
   const emailTo = user.alertEmail || user.email;

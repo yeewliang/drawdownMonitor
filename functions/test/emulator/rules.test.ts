@@ -124,3 +124,28 @@ describe("users", () => {
     await assertFails(updateDoc(doc(alice(), "users/alice"), { summaryHour: "7" }));
   });
 });
+
+describe("portfolios", () => {
+  beforeEach(async () => {
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), "portfolios/alice"), {
+        ownerId: "alice", positions: [], summary: { cash: 1 }, thresholds: [10], alertsEnabled: true, alertState: {},
+      });
+    });
+  });
+
+  it("only the owner can read it", async () => {
+    await assertSucceeds(getDoc(doc(alice(), "portfolios/alice")));
+    await assertFails(getDoc(doc(bob(), "portfolios/alice")));
+    await assertFails(getDoc(doc(anon(), "portfolios/alice")));
+  });
+
+  it("the owner can change alert settings only", async () => {
+    await assertSucceeds(updateDoc(doc(alice(), "portfolios/alice"), { thresholds: [5, 15], alertState: {} }));
+    await assertSucceeds(updateDoc(doc(alice(), "portfolios/alice"), { alertsEnabled: false }));
+    await assertFails(updateDoc(doc(alice(), "portfolios/alice"), { positions: [{ symbol: "X" }] }));
+    await assertFails(updateDoc(doc(alice(), "portfolios/alice"), { thresholds: "10" }));
+    await assertFails(updateDoc(doc(bob(), "portfolios/alice"), { alertsEnabled: false }));
+    await assertFails(setDoc(doc(bob(), "portfolios/bob"), { ownerId: "bob" }));
+  });
+});

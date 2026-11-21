@@ -9,6 +9,7 @@ Track how far stocks, ETFs, indexes and crypto are from their all-time high (ATH
 - **Daily summary** on Telegram at the time you choose in Settings, for any watchlist you switch it on for
 - **Alerts** per symbol at your own thresholds (e.g. -10%, -20%, -30%) via Telegram bot and/or email
 - **Sharing**: share a watchlist read-only with specific people by email, or by public link; recipients can copy it to set their own alerts
+- **Portfolio**: your IBKR holdings, synced by Claude through the MCP server, valued with live prices: P&L, time-weighted return chart, each holding's drawdown from ATH, and alerts when the whole portfolio falls a set % below its peak
 - **MCP server**: connect Claude (or any MCP client) to ask about your watchlists and drawdowns, and manage symbols and alerts by chat
 
 ## Architecture
@@ -38,6 +39,7 @@ firestore.rules
 | `watchlists/{id}/items/{symbol}` | owner | `thresholds[]`, `alertsEnabled`, `alertState` |
 | `apiKeys/{sha256}` | functions only | MCP API key owner, name, last used (plaintext key is never stored) |
 | `quotes/{symbol}` | functions only | price, day change, intraday and closing ATH with dates, drawdowns |
+| `portfolios/{uid}` | functions (owner: alert fields only) | broker snapshot: summary, positions, time-weighted return history, `thresholds`, `alertsEnabled`, `alertState` |
 
 ### How ATH and drawdown are computed
 
@@ -73,6 +75,15 @@ The `mcp` function is a remote [Model Context Protocol](https://modelcontextprot
 | `create_watchlist` | Create a private watchlist |
 | `add_symbol` / `remove_symbol` | Change symbols in your own lists (shared lists are read-only) |
 | `set_alerts` | Change a symbol's alert thresholds or turn its alerts on/off |
+| `save_portfolio_snapshot` | Store the user's brokerage portfolio from the IBKR connector's answers (summary, positions, performance periods) |
+| `get_portfolio` | Portfolio valued with live prices: P&L, returns, drawdown from peak, per-holding drawdown from ATH |
+| `set_portfolio_alerts` | Portfolio drawdown-from-peak alert thresholds, on/off |
+
+### Portfolio sync
+
+With both this server and the Interactive Brokers (IBKR) connector enabled in Claude, ask *"Sync my IBKR portfolio to Drawdown Monitor"*. Claude reads `get_account_summary`, `get_account_positions` and `get_pa_performance_all_periods` and passes them to `save_portfolio_snapshot`. Holdings are then priced every 5 minutes from Yahoo Finance (a quote is used only when it is newer than the snapshot and in the same currency). Non-US listings need a Yahoo symbol, e.g. `yahoo_symbol: "CNDX.L"`.
+
+Portfolio drawdown uses the time-weighted return index, so deposits and withdrawals do not look like gains or losses. Each sync chains IBKR's one-year series onto the stored history, so the peak can be older than a year.
 
 Example prompts: *"Which of my indexes is furthest from its high?"*, *"Add the Nikkei 225 to my Asia list with alerts at 10 and 20 percent"*, *"How far is Bitcoin from its all-time high?"*
 

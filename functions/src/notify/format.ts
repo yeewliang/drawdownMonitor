@@ -31,6 +31,38 @@ export function formatStatusLine(symbol: string, drawdownPct: number, price: num
   return `<code>${escapeHtml(symbol.padEnd(10))}</code> -${drawdownPct.toFixed(2)}% (${fmtNum(price)}${cur})`;
 }
 
+export interface PortfolioAlert {
+  broker: string;
+  threshold: number;
+  drawdownPct: number;
+  peakDate: string | null;
+  value: number;
+  currency: string;
+}
+
+export function formatPortfolioAlert(a: PortfolioAlert, appUrl: string): FormattedAlert {
+  const link = `${appUrl}/portfolio`;
+  const value = `${fmtNum(a.value)} ${a.currency}`;
+  const peak = a.peakDate && a.peakDate !== "live" ? a.peakDate : "n/a";
+  const subject = `Your ${a.broker} portfolio is ${fmtPct(a.drawdownPct)} below its peak`;
+  const text =
+    `Your ${a.broker} portfolio crossed -${a.threshold}%: it is ${fmtPct(a.drawdownPct)} below its peak (${peak}), ` +
+    `measured by time-weighted return, so deposits and withdrawals do not count. Value now ${value}.\n\n` +
+    `Open your portfolio: ${link}\n`;
+  const html = `<div style="font-family:system-ui,sans-serif">
+<h2 style="margin:0 0 12px">Portfolio drawdown alert</h2>
+<p>Your ${escapeHtml(a.broker)} portfolio crossed <b>-${a.threshold}%</b>. It is <b style="color:#c0392b">${fmtPct(a.drawdownPct)}</b> below its peak (${escapeHtml(peak)}), measured by time-weighted return.</p>
+<p>Value now: <b>${escapeHtml(value)}</b></p>
+<p><a href="${link}">Open your portfolio</a></p>
+</div>`;
+  const telegram =
+    `<b>📉 Portfolio drawdown alert</b>\n\n` +
+    `${escapeHtml(a.broker)} portfolio is <b>-${fmtPct(a.drawdownPct)}</b> from its peak (crossed -${a.threshold}%)\n` +
+    `Peak ${escapeHtml(peak)} · value ${escapeHtml(value)}\n\n` +
+    `<a href="${link}">Open your portfolio</a>`;
+  return { subject, text, html, telegram };
+}
+
 export function formatAlerts(alerts: AlertItem[], appUrl: string): FormattedAlert {
   const subject =
     alerts.length === 1

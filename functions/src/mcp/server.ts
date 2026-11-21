@@ -3,7 +3,9 @@ import { FieldValue } from "firebase-admin/firestore";
 import { z } from "zod";
 import { AthBasis } from "../lib/drawdown";
 import { db } from "../lib/firebase";
-import { ItemDoc, QuoteDoc, UserDoc, WatchlistDoc } from "../lib/models";
+import { ItemDoc, PortfolioDoc, QuoteDoc, UserDoc, WatchlistDoc } from "../lib/models";
+import { returnSince } from "../lib/portfolio";
+import { evaluatePortfolio, liveQuotes, portfolioRef, saveSnapshot } from "../lib/portfolioStore";
 import { drawdownFor } from "../lib/quotes";
 import { normalizeSymbol } from "../lib/symbols";
 import { SymbolMatch } from "../providers";
@@ -39,7 +41,8 @@ export function buildMcpServer(caller: McpCaller, deps: McpDeps): McpServer {
         "Drawdown Monitor tracks how far stocks, ETFs, indexes and crypto are below their all-time high (ATH). " +
         "Symbols use Yahoo Finance format: AAPL, ^GSPC (S&P 500), ^NDX, ^N225, BTC-USD. " +
         "Drawdown is a positive percentage below the ATH (0 = at the high). " +
-        "Use search_symbols to find a symbol before adding it if unsure of the ticker.",
+        "Use search_symbols to find a symbol before adding it if unsure of the ticker. " +
+        "The user's brokerage portfolio can be synced with save_portfolio_snapshot (from the IBKR connector's answers) and read with get_portfolio.",
     },
   );
 
@@ -257,6 +260,179 @@ export function buildMcpServer(caller: McpCaller, deps: McpDeps): McpServer {
         await ref.update(patch);
         const it = { ...(snap.data() as ItemDoc), ...patch } as ItemDoc;
         return { symbol: s, alertThresholds: it.thresholds, alertsEnabled: it.alertsEnabled };
+      }),
+  );
+
+  // -------------------------------------------------------------- portfolio
+
+  server.registerTool(
+    "save_portfolio_snapshot",
+    {
+      title: "Save brokerage portfolio snapshot",
+      description:
+        "Store the user's current brokerage portfolio so the app can show holdings, P&L, return history and drawdown from peak, and send portfolio drawdown alerts. " +
+        "Pass the IBKR connector's answers as they come: `summary` from get_account_summary, `positions` from get_account_positions (its `positions` list), " +
+        "and `performance_periods` from get_pa_performance_all_periods (the `periods` object under accounts.<account>). " +
+        "Positions are priced live with Yahoo Finance symbols. US tickers match IBKR; for other exchanges set `yahoo_symbol` on the position " +
+        "(e.g. CNDX on LSE is CNDX.L, D05 on SGX is D05.SI). Replaces the previous snapshot; return history is extended, not lost.",
+      inputSchema: {
+        broker: z.string().max(40).optional().describe("Defaults to IBKR."),
+        summary: z.object({
+          net_liquidation: z.number(),
+          total_cash_value: z.number(),
+          buying_power: z.number().nullish(),
+          available_funds: z.number().nullish(),
+          excess_liquidity: z.number().nullish(),
+          initial_margin: z.number().nullish(),
+          maintenance_margin: z.number().nullish(),
+          leverage: z.union([z.number(), z.string()]).nullish(),
+          currency: z.string().max(8).optional(),
+        }),
+        positions: z
+          .array(
+            z.object({
+              contract_description: z.string().min(1).max(64),
+              contract_id: z.number().nullish(),
+              position: z.number(),
+              market_price: z.number(),
+              market_value: z.number(),
+              average_price: z.number(),
+              unrealized_pnl: z.number(),
+              daily_pnl: z.number().nullish(),
+              currency: z.string().max(8).optional(),
+              asset_class: z.string().max(16).nullish(),
+              yahoo_symbol: z.string().max(32).nullish().describe("Yahoo Finance symbol when it differs from the IBKR one."),
+            }),
+          )
+          .max(300),
+        performance_periods: z
+          .record(
+            z.string().max(8),
+            z.object({
+              start_date: z.string().max(10).optional(),
+              start_nav: z.number().optional(),
+              dates: z.array(z.string().max(10)).max(1000),
+              cps: z.array(z.number()).max(1000),
+              nav: z.array(z.number()).max(1000).optional(),
+            }),
+          )
+          .optional(),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+    },
+    ({ broker, summary, positions, performance_periods }) =>
+      run(async () => {
+        const { doc, rejected } = await saveSnapshot(caller.uid, {
+          broker,
+          summary,
+          positions,
+          performancePeriods: performance_periods,
+        });
+        // Fetch quotes (and full ATH history) for each holding now, so the app shows them at once.
+        const quotes = await Promise.all(doc.positions.map((p) => deps.getQuote(p.symbol).catch(() => null)));
+        const noData = doc.positions.filter((_, i) => !quotes[i]).map((p) => p.symbol);
+        return {
+          saved: true,
+          positions: doc.positions.length,
+          historyPoints: doc.history.dates.length,
+          historyFrom: doc.history.dates[0] ?? null,
+          rejected,
+          noMarketData: noData,
+          note: noData.length
+            ? `No Yahoo Finance data for ${noData.join(", ")}: these use snapshot prices only. Resave with yahoo_symbol set for them.`
+            : undefined,
+        };
+      }),
+  );
+
+  server.registerTool(
+    "get_portfolio",
+    {
+      title: "Get portfolio",
+      description:
+        "The user's saved brokerage portfolio, valued with live prices: total value, day and unrealized P&L, time-weighted returns, " +
+        "drawdown of the portfolio from its peak, and each holding's weight, return and drawdown from its all-time high.",
+      inputSchema: {},
+      annotations: { readOnlyHint: true, openWorldHint: false },
+    },
+    () =>
+      run(async () => {
+        const snap = await portfolioRef(caller.uid).get();
+        if (!snap.exists) throw new ToolError("No portfolio saved yet. Use save_portfolio_snapshot first.");
+        const p = snap.data() as PortfolioDoc;
+        const basis = await userBasis(caller.uid);
+        const qs = p.positions.length ? await db.getAll(...p.positions.map((x) => db.collection("quotes").doc(x.symbol))) : [];
+        const quotes: Record<string, QuoteDoc> = {};
+        qs.forEach((s) => s.exists && (quotes[s.id] = s.data() as QuoteDoc));
+        const { valuation, drawdown } = evaluatePortfolio(p, liveQuotes(quotes));
+        const today = new Date();
+        const ago = (days: number) => new Date(today.getTime() - days * 864e5).toISOString().slice(0, 10);
+        return {
+          broker: p.broker,
+          currency: p.baseCurrency,
+          syncedAt: p.syncedAt.toDate().toISOString(),
+          value: valuation.value,
+          valueAtSync: valuation.snapshotValue,
+          cash: p.summary.cash,
+          dayPnl: valuation.dayPnl,
+          unrealizedPnl: valuation.unrealizedPnl,
+          costBasis: valuation.costBasis,
+          returnsPct: {
+            "1M": returnSince(p.history, ago(31)),
+            YTD: returnSince(p.history, `${today.getUTCFullYear() - 1}-12-31`),
+            "1Y": returnSince(p.history, ago(365)),
+          },
+          drawdownFromPeakPct: drawdown?.drawdownPct ?? null,
+          peakDate: drawdown?.peakDate ?? null,
+          alertThresholds: p.thresholds ?? [],
+          alertsEnabled: p.alertsEnabled !== false,
+          holdings: p.positions.map((x) => {
+            const q = quotes[x.symbol];
+            const live = q?.price != null && q.marketTime.toMillis() > p.syncedAt.toMillis();
+            const price = live ? q!.price : x.marketPrice;
+            const value = x.quantity * price;
+            return {
+              symbol: x.symbol,
+              quantity: x.quantity,
+              price,
+              priceSource: live ? "live" : "snapshot",
+              value: Math.round(value * 100) / 100,
+              weightPct: valuation.value ? Math.round((value / valuation.value) * 10000) / 100 : null,
+              returnPct: x.avgCost ? Math.round(((price / x.avgCost) - 1) * 10000) / 100 : null,
+              drawdownFromAthPct: q ? drawdownFor(q, basis) : null,
+            };
+          }),
+        };
+      }),
+  );
+
+  server.registerTool(
+    "set_portfolio_alerts",
+    {
+      title: "Set portfolio drawdown alerts",
+      description:
+        "Alert by Telegram and/or email when the whole portfolio's time-weighted return falls this far below its peak. Changing thresholds re-arms all of them.",
+      inputSchema: {
+        thresholds: thresholdsSchema.optional(),
+        enabled: z.boolean().optional(),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    ({ thresholds, enabled }) =>
+      run(async () => {
+        if (thresholds === undefined && enabled === undefined) throw new ToolError("Provide thresholds and/or enabled.");
+        const ref = portfolioRef(caller.uid);
+        const snap = await ref.get();
+        if (!snap.exists) throw new ToolError("No portfolio saved yet. Use save_portfolio_snapshot first.");
+        const patch: Record<string, unknown> = {};
+        if (thresholds !== undefined) {
+          patch.thresholds = normalizeThresholds(thresholds);
+          patch.alertState = {};
+        }
+        if (enabled !== undefined) patch.alertsEnabled = enabled;
+        await ref.update(patch);
+        const p = { ...(snap.data() as PortfolioDoc), ...patch } as PortfolioDoc;
+        return { alertThresholds: p.thresholds ?? [], alertsEnabled: p.alertsEnabled !== false };
       }),
   );
 

@@ -162,6 +162,38 @@ table.grid { width: 100%; border-collapse: collapse; }
 .share-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 6px; }
 .share-list li { display: flex; justify-content: space-between; padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px; }
 
+/* Portfolio */
+.lede { margin: -8px 0 0; color: var(--muted); max-width: 70ch; line-height: 1.5; }
+.lede b { color: var(--text); font-variant-numeric: tabular-nums; }
+.lede b.up { color: var(--up); }
+.lede b.down { color: var(--down); }
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+.kpis .card { padding: 14px 16px; min-width: 0; }
+.kpi-label { font-size: 0.8rem; color: var(--muted); }
+.kpi-value { font-size: clamp(1.2rem, 4.5vw, 1.6rem); font-weight: 700; font-variant-numeric: tabular-nums; margin: 4px 0 2px; }
+.kpi-sub { font-size: 0.8rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.section-head h3 .up, .section-head h3 .down { font-variant-numeric: tabular-nums; margin-left: 6px; }
+.section-head { flex-wrap: wrap; gap: 8px; }
+.chart { position: relative; }
+.chart-empty { min-height: 240px; display: grid; place-items: center; }
+.chart-grid { stroke: var(--border); stroke-width: 1; }
+.chart-zero { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 3 3; }
+.chart-tick { fill: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.chart-line { fill: none; stroke-width: 2; stroke-linejoin: round; }
+.chart-line.up { stroke: var(--up); }
+.chart-line.down { stroke: var(--down); }
+.chart-dot.up { fill: var(--up); }
+.chart-dot.down { fill: var(--down); }
+.chart-end { font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.chart-end.up { fill: var(--up); }
+.chart-end.down { fill: var(--down); }
+.chart-tip { position: absolute; top: 4px; pointer-events: none; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.two-col { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; }
+.metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin: 0; }
+.metrics dt { font-size: 0.8rem; color: var(--muted); }
+.metrics dd { margin: 2px 0 0; font-weight: 600; font-variant-numeric: tabular-nums; }
+.steps { margin: 12px 0 0; padding-left: 20px; display: flex; flex-direction: column; gap: 8px; line-height: 1.5; }
+
 @media (max-width: 640px) {
   .content { padding: 16px; }
   .hide-sm { display: none; }

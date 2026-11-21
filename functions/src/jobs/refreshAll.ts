@@ -7,6 +7,7 @@ import { mapPool } from "../lib/pool";
 import { drawdownFor, refreshQuote } from "../lib/quotes";
 import { notifyUser } from "../notify/dispatch";
 import { AlertItem } from "../notify/format";
+import { evaluatePortfolioAlerts, loadPortfolios } from "./portfolioAlerts";
 
 const FETCH_CONCURRENCY = 6;
 
@@ -20,7 +21,8 @@ interface LoadedItem {
  * One monitoring cycle:
  *  1. collect every symbol referenced by any watchlist item,
  *  2. refresh quotes/{symbol} for each,
- *  3. evaluate each item's thresholds and send alerts per owner.
+ *  3. evaluate each item's thresholds and send alerts per owner,
+ *  4. value each saved portfolio and send portfolio drawdown alerts.
  */
 export async function refreshAllAndAlert(): Promise<{ symbols: number; refreshed: number; alertsSent: number }> {
   const itemsSnap = await db.collectionGroup("items").get();
@@ -28,7 +30,13 @@ export async function refreshAllAndAlert(): Promise<{ symbols: number; refreshed
     .filter((d) => d.ref.parent.parent?.parent.id === "watchlists")
     .map((d) => ({ ref: d.ref, watchlistId: d.ref.parent.parent!.id, data: d.data() as ItemDoc }));
 
-  const symbols = [...new Set(items.map((i) => i.data.symbol).filter(Boolean))];
+  const portfolios = await loadPortfolios();
+  const symbols = [
+    ...new Set([
+      ...items.map((i) => i.data.symbol),
+      ...portfolios.flatMap((p) => (p.data.positions ?? []).map((x) => x.symbol)),
+    ].filter(Boolean)),
+  ];
   const settled = await mapPool(symbols, FETCH_CONCURRENCY, (s) => refreshQuote(s));
   const quotes = new Map<string, QuoteDoc>();
   settled.forEach((r, i) => {
@@ -36,7 +44,12 @@ export async function refreshAllAndAlert(): Promise<{ symbols: number; refreshed
     else if (r.status === "rejected") logger.error("refresh failed", { symbol: symbols[i], err: String(r.reason) });
   });
 
-  const alertsSent = await evaluateAndNotify(items, quotes);
+  let alertsSent = await evaluateAndNotify(items, quotes);
+  try {
+    alertsSent += await evaluatePortfolioAlerts(portfolios, quotes);
+  } catch (err) {
+    logger.error("portfolio alerts failed", { err: String(err) });
+  }
   logger.info("refresh cycle complete", { symbols: symbols.length, refreshed: quotes.size, alertsSent });
   return { symbols: symbols.length, refreshed: quotes.size, alertsSent };
 }

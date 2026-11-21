@@ -15,6 +15,7 @@ export default function Layout() {
           {user ? (
             <>
               <NavLink to="/" end>Watchlists</NavLink>
+              <NavLink to="/portfolio">Portfolio</NavLink>
               <NavLink to="/settings">Settings</NavLink>
               <button className="link" onClick={signOut}>Sign out</button>
             </>

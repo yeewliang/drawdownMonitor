@@ -131,6 +131,55 @@ describe("MCP tools", () => {
   });
 });
 
+describe("portfolio tools", () => {
+  const snapshot = {
+    summary: { net_liquidation: 1000, total_cash_value: 100, leverage: "0.99", currency: "USD" },
+    positions: [
+      { contract_description: "AAPL", position: 10, market_price: 90, market_value: 900, average_price: 80, unrealized_pnl: 100, daily_pnl: -3 },
+      { contract_description: "ZZZZ", position: 1, market_price: 1, market_value: 1, average_price: 1, unrealized_pnl: 0 },
+    ],
+    performance_periods: {
+      "1Y": { start_date: "20251120", start_nav: 800, dates: ["20260601", "20261120"], cps: [0.25, 0.0], nav: [900, 1000], frequency: "D" },
+    },
+  };
+
+  beforeEach(async () => {
+    await db.recursiveDelete(db.collection("portfolios"));
+  });
+
+  it("saves a snapshot and reads it back with drawdown from peak", async () => {
+    const c = await connect({ uid: "alice", email: "alice@example.com" });
+    const saved = await call(c, "save_portfolio_snapshot", snapshot);
+    expect(saved.error).toBe(false);
+    expect(saved.data.positions).toBe(2);
+    expect(saved.data.noMarketData).toEqual(["ZZZZ"]);
+
+    const doc = (await db.doc("portfolios/alice").get()).data()!;
+    expect(doc.summary.leverage).toBe(0.99);
+    expect(doc.history.dates).toEqual(["2025-11-20", "2026-06-01", "2026-11-20"]);
+
+    const { data } = await call(c, "get_portfolio");
+    expect(data.drawdownFromPeakPct).toBe(20);
+    expect(data.peakDate).toBe("2026-06-01");
+    expect(data.holdings.map((h: any) => h.symbol)).toEqual(["AAPL", "ZZZZ"]);
+    expect(data.holdings[0].drawdownFromAthPct).toBeCloseTo(10);
+  });
+
+  it("keeps alert settings across snapshots and lets the owner change them", async () => {
+    const c = await connect({ uid: "alice", email: "alice@example.com" });
+    await call(c, "save_portfolio_snapshot", snapshot);
+    const set = await call(c, "set_portfolio_alerts", { thresholds: [15, 5], enabled: true });
+    expect(set.data.alertThresholds).toEqual([5, 15]);
+    await call(c, "save_portfolio_snapshot", snapshot);
+    expect((await db.doc("portfolios/alice").get()).get("thresholds")).toEqual([5, 15]);
+  });
+
+  it("reports a missing portfolio as a tool error", async () => {
+    const c = await connect({ uid: "bob", email: null });
+    expect((await call(c, "get_portfolio")).error).toBe(true);
+  });
+});
+
 describe("API keys", () => {
   it("creates, verifies, lists and revokes", async () => {
     const { key, info } = await createApiKey("alice", "laptop");
@@ -173,7 +222,10 @@ describe("HTTP endpoint", () => {
     await client.connect(new StreamableHTTPClientTransport(new URL(url), { requestInit: { headers: { Authorization: `Bearer ${key}` } } }));
     const tools = await client.listTools();
     expect(tools.tools.map((t) => t.name).sort()).toEqual(
-      ["add_symbol", "create_watchlist", "get_drawdown", "get_watchlist", "list_watchlists", "remove_symbol", "search_symbols", "set_alerts"],
+      [
+        "add_symbol", "create_watchlist", "get_drawdown", "get_portfolio", "get_watchlist", "list_watchlists",
+        "remove_symbol", "save_portfolio_snapshot", "search_symbols", "set_alerts", "set_portfolio_alerts",
+      ],
     );
     const r: any = await client.callTool({ name: "list_watchlists", arguments: {} });
     expect(r.structuredContent.watchlists).toHaveLength(2);
