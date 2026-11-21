@@ -70,6 +70,8 @@ interface TokenDoc {
   clientId: string;
   grantId: string;
   expiresAt: Timestamp;
+  /** Set when a refresh token has been exchanged; kept for reuse detection until it expires. */
+  consumedAt?: Timestamp;
 }
 
 /** Public origin, e.g. https://drawdown-monitor.vercel.app (no trailing slash). */
@@ -103,6 +105,11 @@ export function authorizationServerMetadata() {
 }
 
 // ---------------------------------------------------------------- validation
+
+/** RFC 8707 resource indicator: only this server's MCP endpoint (trailing slash tolerated). */
+export function isOurResource(raw: unknown): boolean {
+  return typeof raw === "string" && raw.replace(/\/+$/, "") === resourceUrl();
+}
 
 /** https anywhere; http only for loopback (local clients such as Claude Code). */
 export function validRedirectUri(raw: unknown): raw is string {
@@ -204,8 +211,12 @@ export async function approve(uid: string, input: ApproveInput): Promise<string>
   if (typeof redirectUri !== "string" || !c.redirectUris.includes(redirectUri)) {
     throw new OAuthError("invalid_request", "This redirect address is not registered for the app.");
   }
+  if (typeof input.state === "string" && input.state.length > 2000) {
+    throw new OAuthError("invalid_request", "The state parameter is too long.");
+  }
   const target = new URL(redirectUri);
-  if (typeof input.state === "string" && input.state) target.searchParams.set("state", input.state.slice(0, 500));
+  // state is opaque to us and goes back unchanged.
+  if (typeof input.state === "string" && input.state) target.searchParams.set("state", input.state);
   target.searchParams.set("iss", origin());
 
   if (input.deny === true) {
@@ -216,6 +227,12 @@ export async function approve(uid: string, input: ApproveInput): Promise<string>
   if (input.code_challenge_method !== "S256" || typeof challenge !== "string" || !/^[A-Za-z0-9_-]{43,128}$/.test(challenge)) {
     target.searchParams.set("error", "invalid_request");
     target.searchParams.set("error_description", "PKCE with S256 is required.");
+    return target.toString();
+  }
+
+  if (input.resource !== undefined && input.resource !== null && input.resource !== "" && !isOurResource(input.resource)) {
+    target.searchParams.set("error", "invalid_target");
+    target.searchParams.set("error_description", `Only ${resourceUrl()} can be authorized here.`);
     return target.toString();
   }
 
@@ -235,7 +252,7 @@ export async function approve(uid: string, input: ApproveInput): Promise<string>
     redirectUri,
     codeChallenge: challenge,
     scope: SCOPE,
-    resource: typeof input.resource === "string" ? input.resource.slice(0, 300) : null,
+    resource: typeof input.resource === "string" && input.resource ? resourceUrl() : null,
     expiresAt: Timestamp.fromMillis(Date.now() + CODE_TTL_MS),
   };
   await codes().doc(sha(code)).create(doc);
@@ -284,22 +301,23 @@ export async function tokenRequest(req: Request, body: Record<string, unknown>) 
     if (typeof body.code !== "string" || typeof body.code_verifier !== "string") {
       throw new OAuthError("invalid_request", "code and code_verifier are required.");
     }
+    if (body.resource !== undefined && body.resource !== "" && !isOurResource(body.resource)) {
+      throw new OAuthError("invalid_target", `Only ${resourceUrl()} can be requested here.`);
+    }
     const ref = codes().doc(sha(body.code));
-    // Single use: read and delete in one transaction.
+    const verifierHash = createHash("sha256").update(body.code_verifier).digest("base64url");
+    // Check every binding before consuming the code, so a request that is not
+    // the legitimate client's (wrong client, redirect or verifier) can't burn it.
     const code = await db.runTransaction(async (tx) => {
       const snap = await tx.get(ref);
-      if (!snap.exists) return null;
+      if (!snap.exists) throw new OAuthError("invalid_grant", "The code is invalid or expired.");
+      const c = snap.data() as CodeDoc;
+      if (c.expiresAt.toMillis() < Date.now() || c.clientId !== clientId) throw new OAuthError("invalid_grant", "The code is invalid or expired.");
+      if (body.redirect_uri !== undefined && body.redirect_uri !== c.redirectUri) throw new OAuthError("invalid_grant", "redirect_uri does not match.");
+      if (verifierHash !== c.codeChallenge) throw new OAuthError("invalid_grant", "PKCE verification failed.");
       tx.delete(ref);
-      return snap.data() as CodeDoc;
+      return c;
     });
-    if (!code || code.expiresAt.toMillis() < Date.now() || code.clientId !== clientId) {
-      throw new OAuthError("invalid_grant", "The code is invalid or expired.");
-    }
-    if (body.redirect_uri !== undefined && body.redirect_uri !== code.redirectUri) {
-      throw new OAuthError("invalid_grant", "redirect_uri does not match.");
-    }
-    const expected = createHash("sha256").update(body.code_verifier).digest("base64url");
-    if (expected !== code.codeChallenge) throw new OAuthError("invalid_grant", "PKCE verification failed.");
     if (!(await grants().doc(code.grantId).get()).exists) throw new OAuthError("invalid_grant", "Access was revoked.");
     return issueTokens(code.uid, clientId, code.grantId);
   }
@@ -308,17 +326,30 @@ export async function tokenRequest(req: Request, body: Record<string, unknown>) 
     if (typeof body.refresh_token !== "string" || !body.refresh_token.startsWith(REFRESH_PREFIX)) {
       throw new OAuthError("invalid_grant", "Invalid refresh token.");
     }
+    if (body.resource !== undefined && body.resource !== "" && !isOurResource(body.resource)) {
+      throw new OAuthError("invalid_target", `Only ${resourceUrl()} can be requested here.`);
+    }
     const ref = tokens().doc(sha(body.refresh_token));
-    // Rotation: the old refresh token is consumed.
-    const old = await db.runTransaction(async (tx) => {
+    // Rotation. Ownership, kind and expiry are checked before anything is
+    // changed. A used refresh token is kept, marked consumed: presenting it
+    // again means it was copied, so the whole grant is revoked (RFC 9700).
+    const outcome = await db.runTransaction(async (tx) => {
       const snap = await tx.get(ref);
-      if (!snap.exists) return null;
-      tx.delete(ref);
-      return snap.data() as TokenDoc;
+      if (!snap.exists) return { ok: false as const };
+      const t = snap.data() as TokenDoc;
+      if (t.kind !== "refresh" || t.clientId !== clientId || t.expiresAt.toMillis() < Date.now()) return { ok: false as const };
+      if (t.consumedAt) return { ok: false as const, replayOf: t.grantId };
+      tx.update(ref, { consumedAt: Timestamp.now() });
+      return { ok: true as const, token: t };
     });
-    if (!old || old.kind !== "refresh" || old.clientId !== clientId || old.expiresAt.toMillis() < Date.now()) {
+    if (!outcome.ok) {
+      if (outcome.replayOf) {
+        logger.warn("refresh token reuse: revoking grant", { grantId: outcome.replayOf });
+        await deleteGrant(outcome.replayOf);
+      }
       throw new OAuthError("invalid_grant", "Invalid refresh token.");
     }
+    const old = outcome.token;
     if (!(await grants().doc(old.grantId).get()).exists) throw new OAuthError("invalid_grant", "Access was revoked.");
     return issueTokens(old.uid, clientId, old.grantId);
   }
@@ -333,6 +364,9 @@ export async function verifyAccessToken(token: string): Promise<string | null> {
   if (!snap.exists) return null;
   const t = snap.data() as TokenDoc;
   if (t.kind !== "access" || t.expiresAt.toMillis() < Date.now()) return null;
+  // A token issued while a Disconnect was deleting tokens would be missed by
+  // that sweep; requiring the grant closes the gap.
+  if (!(await grants().doc(t.grantId).get()).exists) return null;
   return t.uid;
 }
 
@@ -357,15 +391,22 @@ export async function listGrants(uid: string): Promise<GrantInfo[]> {
 
 /** Delete a grant and every token issued under it. */
 export async function revokeGrant(uid: string, grantId: string): Promise<boolean> {
-  const ref = grants().doc(grantId);
-  const snap = await ref.get();
+  const snap = await grants().doc(grantId).get();
   if (!snap.exists || snap.get("uid") !== uid) return false;
+  await deleteGrant(grantId);
+  return true;
+}
+
+/**
+ * The grant goes first: tokens are only honoured while their grant exists, so
+ * anything issued during the sweep below is already dead.
+ */
+async function deleteGrant(grantId: string): Promise<void> {
+  await grants().doc(grantId).delete();
   const writer = db.bulkWriter();
   for (const d of (await tokens().where("grantId", "==", grantId).get()).docs) writer.delete(d.ref);
   for (const d of (await codes().where("grantId", "==", grantId).get()).docs) writer.delete(d.ref);
-  writer.delete(ref);
   await writer.close();
-  return true;
 }
 
 /** Remove expired codes and tokens, and clients nobody authorized within a week. */

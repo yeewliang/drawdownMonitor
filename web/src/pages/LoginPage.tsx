@@ -11,7 +11,7 @@ import {
   updateProfile,
   type AuthProvider,
 } from "firebase/auth";
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { Navigate, useLocation } from "react-router-dom";
 import { useAuth } from "../auth/AuthProvider";
 import { auth } from "../lib/firebase";
@@ -34,11 +34,13 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
 
-  const from = (location.state as { from?: string } | null)?.from ?? savedFrom() ?? "/";
-  if (user) {
-    clearSavedFrom();
-    return <Navigate to={from} replace />;
-  }
+  // Read once into state: repeated renders (StrictMode) must keep the same destination.
+  const [saved] = useState(savedFrom);
+  const from = (location.state as { from?: string } | null)?.from ?? saved ?? "/";
+  useEffect(() => {
+    if (user) clearSavedFrom();
+  }, [user]);
+  if (user) return <Navigate to={from} replace />;
 
   async function run(fn: () => Promise<unknown>) {
     setBusy(true);

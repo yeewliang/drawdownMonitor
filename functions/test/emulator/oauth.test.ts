@@ -194,13 +194,22 @@ describe("authorization code", () => {
     expect((await json(replay)).error).toBe("invalid_grant");
   });
 
-  it("rejects a wrong verifier", async () => {
+  it("rejects a wrong verifier without burning the code", async () => {
     const { body: client } = await register();
-    const { challenge } = pkce();
+    const { challenge, verifier } = pkce();
     const { body } = await approve("alice", { client_id: client.client_id, redirect_uri: REDIRECT, code_challenge: challenge, code_challenge_method: "S256" });
     const code = new URL(body.redirect).searchParams.get("code")!;
     const r = await fetch(`${base}/oauth/token`, form({ grant_type: "authorization_code", code, code_verifier: pkce().verifier, client_id: client.client_id }));
     expect((await json(r)).error).toBe("invalid_grant");
+
+    // Another client presenting the code doesn't burn it either.
+    const { body: other } = await register();
+    const stolen = await fetch(`${base}/oauth/token`, form({ grant_type: "authorization_code", code, code_verifier: verifier, client_id: other.client_id }));
+    expect(stolen.status).toBe(400);
+
+    // The legitimate exchange still works.
+    const ok = await fetch(`${base}/oauth/token`, form({ grant_type: "authorization_code", code, code_verifier: verifier, client_id: client.client_id }));
+    expect(ok.status).toBe(200);
   });
 
   it("requires the client secret for confidential clients", async () => {
@@ -236,6 +245,20 @@ describe("approval", () => {
     expect(anon.status).toBe(401);
   });
 
+  it("returns state unchanged and rejects other resources", async () => {
+    const { body: client } = await register();
+    const longState = "s".repeat(1500);
+    const ok = await approve("alice", { client_id: client.client_id, redirect_uri: REDIRECT, code_challenge: pkce().challenge, code_challenge_method: "S256", state: longState, resource: `${base}/mcp` });
+    expect(new URL(ok.body.redirect).searchParams.get("state")).toBe(longState);
+
+    const other = await approve("alice", { client_id: client.client_id, redirect_uri: REDIRECT, code_challenge: pkce().challenge, code_challenge_method: "S256", resource: "https://other.example/mcp" });
+    expect(new URL(other.body.redirect).searchParams.get("error")).toBe("invalid_target");
+
+    const g = await fullGrant();
+    const r = await fetch(`${base}/oauth/token`, form({ grant_type: "refresh_token", refresh_token: g.tokens.refresh_token, client_id: g.client.client_id, resource: "https://other.example/mcp" }));
+    expect((await json(r)).error).toBe("invalid_target");
+  });
+
   it("rejects plain http redirect URIs except on loopback", async () => {
     expect((await register({ redirect_uris: ["http://evil.example/cb"] })).status).toBe(400);
     expect((await register({ redirect_uris: ["http://localhost:33418/callback"] })).status).toBe(201);
@@ -243,22 +266,46 @@ describe("approval", () => {
 });
 
 describe("refresh and revoke", () => {
-  it("rotates refresh tokens and stops everything when the user disconnects", async () => {
+  const refresh = (token: string, clientId: string) =>
+    fetch(`${base}/oauth/token`, form({ grant_type: "refresh_token", refresh_token: token, client_id: clientId }));
+
+  it("rotates refresh tokens and only for their own client", async () => {
     const g = await fullGrant();
-    const r1 = await fetch(`${base}/oauth/token`, form({ grant_type: "refresh_token", refresh_token: g.tokens.refresh_token, client_id: g.client.client_id }));
+    const { body: other } = await register();
+    // Another client can't use or burn this refresh token.
+    expect((await refresh(g.tokens.refresh_token, other.client_id)).status).toBe(400);
+
+    const r1 = await refresh(g.tokens.refresh_token, g.client.client_id);
     const t2 = await json(r1);
     expect(r1.status).toBe(200);
     expect(t2.refresh_token).not.toBe(g.tokens.refresh_token);
+    expect((await mcpPost(t2.access_token)).status).toBe(200);
+  });
 
-    // The old refresh token is spent.
-    const reuse = await fetch(`${base}/oauth/token`, form({ grant_type: "refresh_token", refresh_token: g.tokens.refresh_token, client_id: g.client.client_id }));
-    expect(reuse.status).toBe(400);
+  it("revokes the whole connection when a used refresh token is replayed", async () => {
+    const g = await fullGrant();
+    const t2 = await json(await refresh(g.tokens.refresh_token, g.client.client_id));
+    // The old token comes back: someone copied it.
+    expect((await refresh(g.tokens.refresh_token, g.client.client_id)).status).toBe(400);
+    expect(await listGrants("alice")).toEqual([]);
+    expect((await mcpPost(t2.access_token)).status).toBe(401);
+    expect((await refresh(t2.refresh_token, g.client.client_id)).status).toBe(400);
+  });
 
+  it("stops everything when the user disconnects", async () => {
+    const g = await fullGrant();
     const [grant] = await listGrants("alice");
     expect(await revokeGrant("bob", grant.id)).toBe(false);
     expect(await revokeGrant("alice", grant.id)).toBe(true);
-    expect((await mcpPost(t2.access_token)).status).toBe(401);
-    const after = await fetch(`${base}/oauth/token`, form({ grant_type: "refresh_token", refresh_token: t2.refresh_token, client_id: g.client.client_id }));
-    expect(after.status).toBe(400);
+    expect((await mcpPost(g.tokens.access_token)).status).toBe(401);
+    expect((await refresh(g.tokens.refresh_token, g.client.client_id)).status).toBe(400);
+  });
+
+  it("does not honour an access token whose grant is gone, even if the token survived", async () => {
+    const g = await fullGrant();
+    const [grant] = await listGrants("alice");
+    // Simulate a token issued during a Disconnect sweep: the grant is deleted, the token isn't.
+    await db.doc(`oauthGrants/${grant.id}`).delete();
+    expect((await mcpPost(g.tokens.access_token)).status).toBe(401);
   });
 });
