@@ -16,6 +16,7 @@ import { normalizeSymbol } from "./lib/symbols";
 import { getProvider } from "./providers";
 import { createApiKey as createKey, listApiKeys as listKeys, revokeApiKey as revokeKey } from "./mcp/apiKeys";
 import { handleMcpRequest } from "./mcp/http";
+import { cleanupOAuth, handleOAuthRequest, listGrants, revokeGrant } from "./mcp/oauth";
 import { notifyUser } from "./notify/dispatch";
 
 setGlobalOptions({ region: REGION, maxInstances: 10 });
@@ -142,6 +143,31 @@ export const unlinkTelegram = onCall(async (req) => {
  * `Authorization: Bearer <API key>` from Settings > MCP access.
  */
 export const mcp = onRequest({ memory: "512MiB", timeoutSeconds: 60, cors: false }, handleMcpRequest);
+
+/**
+ * OAuth for the MCP endpoint (Claude web, mobile and desktop connectors).
+ * Public at APP_URL through Vercel rewrites: /.well-known/oauth-*, /oauth/*.
+ */
+export const oauth = onRequest({ memory: "256MiB", timeoutSeconds: 30, cors: false }, handleOAuthRequest);
+
+/** Apps connected through OAuth, for Settings > MCP access. */
+export const listOAuthGrants = onCall(async (req) => {
+  if (!req.auth) throw new HttpsError("unauthenticated", "Sign in first.");
+  return { grants: await listGrants(req.auth.uid) };
+});
+
+export const revokeOAuthGrant = onCall(async (req) => {
+  if (!req.auth) throw new HttpsError("unauthenticated", "Sign in first.");
+  const id = typeof req.data?.id === "string" ? req.data.id : "";
+  if (!id || !(await revokeGrant(req.auth.uid, id))) throw new HttpsError("not-found", "Connection not found.");
+  return { ok: true };
+});
+
+/** Daily: delete expired OAuth codes and tokens, and abandoned client registrations. */
+export const oauthCleanup = onSchedule({ schedule: "every 24 hours" }, async () => {
+  const { deleted } = await cleanupOAuth();
+  logger.info("oauth cleanup", { deleted });
+});
 
 export const createApiKey = onCall(async (req) => {
   if (!req.auth) throw new HttpsError("unauthenticated", "Sign in first.");

@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { createApiKey, listApiKeys, revokeApiKey, type ApiKeyInfo } from "../lib/api";
-import { MCP_URL } from "../lib/firebase";
+import { createApiKey, listApiKeys, listOAuthGrants, revokeApiKey, revokeOAuthGrant, type ApiKeyInfo, type OAuthGrantInfo } from "../lib/api";
+import { CONNECTOR_URL, MCP_URL } from "../lib/firebase";
 
 export default function McpAccess() {
   const [keys, setKeys] = useState<ApiKeyInfo[] | null>(null);
@@ -9,8 +9,19 @@ export default function McpAccess() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  const [grants, setGrants] = useState<OAuthGrantInfo[] | null>(null);
   const reload = () => listApiKeys().then(setKeys, (e) => setError(String(e?.message ?? e)));
-  useEffect(() => void reload(), []);
+  const reloadGrants = () => listOAuthGrants().then(setGrants, (e) => setError(String(e?.message ?? e)));
+  useEffect(() => {
+    void reload();
+    void reloadGrants();
+  }, []);
+
+  async function onDisconnect(g: OAuthGrantInfo) {
+    if (!confirm(`Disconnect “${g.clientName}”? It will need to sign in again to use Drawdown Monitor.`)) return;
+    await revokeOAuthGrant(g.id);
+    await reloadGrants();
+  }
 
   async function onCreate(e: FormEvent) {
     e.preventDefault();
@@ -57,6 +68,35 @@ export default function McpAccess() {
         Let Claude and other AI assistants read your watchlists and drawdowns, look up any symbol, and add, remove or set alerts on symbols in
         your own lists. They act as you, so only create keys for clients you trust.
       </p>
+
+      <h4>Claude on the web, mobile and desktop</h4>
+      <ol className="steps">
+        <li>In Claude, open <b>Settings &gt; Connectors</b> and choose <b>Add custom connector</b>.</li>
+        <li>Name it <i>Drawdown Monitor</i> and paste this URL:<CopyField value={CONNECTOR_URL} /></li>
+        <li>Click <b>Connect</b>, sign in here with the same account, and approve. It then works on every device signed in to your Claude account.</li>
+      </ol>
+
+      {grants && grants.length > 0 && (
+        <>
+          <h4>Connected apps</h4>
+          <ul className="share-list">
+            {grants.map((g) => (
+              <li key={g.id}>
+                <span>
+                  <b>{g.clientName}</b>
+                  <br />
+                  <small className="muted">
+                    Connected {new Date(g.createdAt).toLocaleDateString()} · {g.lastUsedAt ? `last active ${new Date(g.lastUsedAt).toLocaleDateString()}` : "not used yet"}
+                  </small>
+                </span>
+                <button className="link danger" onClick={() => onDisconnect(g)}>Disconnect</button>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+
+      <h4>API keys (Claude Code and other clients)</h4>
       <label>
         Server URL
         <CopyField value={MCP_URL} />
@@ -105,7 +145,7 @@ export default function McpAccess() {
   );
 }
 
-function CopyField({ value }: { value: string }) {
+export function CopyField({ value }: { value: string }) {
   const [copied, setCopied] = useState(false);
   return (
     <div className="row">

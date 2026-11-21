@@ -167,3 +167,20 @@ export async function listApiKeys(): Promise<ApiKeyInfo[]> {
 export async function revokeApiKey(id: string): Promise<void> {
   await httpsCallable(functions, "revokeApiKey")({ id });
 }
+
+// ---------------------------------------------------------------- OAuth connections
+
+export interface OAuthGrantInfo {
+  id: string;
+  clientName: string;
+  createdAt: string;
+  lastUsedAt: string | null;
+}
+
+export async function listOAuthGrants(): Promise<OAuthGrantInfo[]> {
+  return (await httpsCallable<void, { grants: OAuthGrantInfo[] }>(functions, "listOAuthGrants")()).data.grants;
+}
+
+export async function revokeOAuthGrant(id: string): Promise<void> {
+  await httpsCallable(functions, "revokeOAuthGrant")({ id });
+}

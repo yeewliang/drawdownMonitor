@@ -31,3 +31,12 @@ export const MCP_URL: string =
   (env.VITE_USE_EMULATORS === "true"
     ? `http://127.0.0.1:5001/${env.VITE_FIREBASE_PROJECT_ID}/${env.VITE_FUNCTIONS_REGION || "asia-southeast1"}/mcp`
     : `https://${env.VITE_FUNCTIONS_REGION || "asia-southeast1"}-${env.VITE_FIREBASE_PROJECT_ID}.cloudfunctions.net/mcp`);
+
+/** The `oauth` Cloud Function (called directly so it also works on localhost). */
+export const OAUTH_FN_URL: string = MCP_URL.replace(/\/mcp$/, "/oauth");
+
+/**
+ * URL to add as a custom connector in Claude. It is on the app's own origin
+ * so OAuth discovery (/.well-known/...) works; Vercel forwards it to `mcp`.
+ */
+export const CONNECTOR_URL: string = `${typeof window !== "undefined" ? window.location.origin : ""}/mcp`;

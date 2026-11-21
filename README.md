@@ -87,7 +87,17 @@ Portfolio drawdown uses the time-weighted return index, so deposits and withdraw
 
 Example prompts: *"Which of my indexes is furthest from its high?"*, *"Add the Nikkei 225 to my Asia list with alerts at 10 and 20 percent"*, *"How far is Bitcoin from its all-time high?"*
 
-### Connect a client
+### Connect Claude (web, mobile, desktop)
+
+The server supports OAuth, so it works as a custom connector everywhere your Claude account does:
+
+1. In Claude, open **Settings > Connectors > Add custom connector**.
+2. Name it *Drawdown Monitor* and use the URL `https://drawdown-monitor.vercel.app/mcp`.
+3. Click **Connect**, sign in to Drawdown Monitor, and approve. Disconnect any time under **Settings > MCP access > Connected apps**.
+
+How it works: Vercel forwards `/mcp`, `/.well-known/oauth-*` and `/oauth/{register,token,client,approve}` on the app's origin to the `mcp` and `oauth` functions (`web/vercel.json`), so discovery happens on one origin. Clients register dynamically (RFC 7591), the consent page is the web app's `/oauth/authorize` route, and codes require PKCE (S256). Access tokens last an hour; refresh tokens rotate and last 90 days. Only SHA-256 hashes of codes and tokens are stored, in server-only collections (`oauthClients`, `oauthCodes`, `oauthGrants`, `oauthTokens`), and a daily job removes expired ones.
+
+### Connect with an API key (Claude Code, other clients)
 
 1. In the app, go to **Settings > MCP access** and click **Create API key**. Copy the key; it is shown only once.
 2. Connect your client (the Settings page shows these with your URL and key filled in):
@@ -113,7 +123,6 @@ Example prompts: *"Which of my indexes is furthest from its high?"*, *"Add the N
 Notes:
 - A key acts as you: it can read everything you can see and change your own lists. Each user can have up to 10 keys; only a SHA-256 hash is stored.
 - Lists shared with you by email are only visible if your account email is verified, same as in the app.
-- Custom connectors on claude.ai (web and mobile) require OAuth, which this server does not implement yet. Use Claude Code or Claude Desktop.
 
 ## Setup
 
