@@ -7,6 +7,7 @@ import { quoteRef, refreshQuote } from "../lib/quotes";
 import { QuoteDoc } from "../lib/models";
 import { getProvider } from "../providers";
 import { verifyApiKey } from "./apiKeys";
+import { ACCESS_PREFIX, resourceMetadataUrl, verifyAccessToken } from "./oauth";
 import { buildMcpServer, McpDeps } from "./server";
 
 /** Cached quotes younger than this are served without calling the provider. */
@@ -25,7 +26,8 @@ const liveDeps: McpDeps = {
 };
 
 /**
- * Stateless Streamable HTTP MCP endpoint. Each POST carries a bearer API key;
+ * Stateless Streamable HTTP MCP endpoint. Each POST carries a bearer OAuth
+ * access token or personal API key;
  * a fresh server/transport pair handles the request and is then discarded.
  */
 export async function handleMcpRequest(req: Request, res: Response): Promise<void> {
@@ -37,12 +39,14 @@ export async function handleMcpRequest(req: Request, res: Response): Promise<voi
 
   const auth = req.header("authorization") ?? "";
   const key = auth.startsWith("Bearer ") ? auth.slice(7).trim() : "";
-  const uid = key ? await verifyApiKey(key) : null;
+  // OAuth access tokens (Claude web, mobile and desktop connectors) or personal API keys.
+  const uid = !key ? null : key.startsWith(ACCESS_PREFIX) ? await verifyAccessToken(key) : await verifyApiKey(key);
   if (!uid) {
+    // resource_metadata lets OAuth clients discover how to sign in (RFC 9728).
     res
       .status(401)
-      .set("WWW-Authenticate", 'Bearer realm="drawdown-monitor"')
-      .json(rpcError("Missing or invalid API key. Create one in Drawdown Monitor > Settings > MCP access."));
+      .set("WWW-Authenticate", `Bearer realm="drawdown-monitor", resource_metadata="${resourceMetadataUrl()}"`)
+      .json(rpcError("Missing or invalid credentials. Connect with OAuth, or create an API key in Drawdown Monitor > Settings > MCP access."));
     return;
   }
 

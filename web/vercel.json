@@ -8,6 +8,34 @@
       "destination": "https://drawdown-monitor-wl.firebaseapp.com/__/auth/:path*"
     },
     {
+      "source": "/mcp",
+      "destination": "https://asia-southeast1-drawdown-monitor-wl.cloudfunctions.net/mcp"
+    },
+    {
+      "source": "/.well-known/oauth-protected-resource/:path*",
+      "destination": "https://asia-southeast1-drawdown-monitor-wl.cloudfunctions.net/oauth/.well-known/oauth-protected-resource/:path*"
+    },
+    {
+      "source": "/.well-known/oauth-protected-resource",
+      "destination": "https://asia-southeast1-drawdown-monitor-wl.cloudfunctions.net/oauth/.well-known/oauth-protected-resource"
+    },
+    {
+      "source": "/.well-known/oauth-authorization-server/:path*",
+      "destination": "https://asia-southeast1-drawdown-monitor-wl.cloudfunctions.net/oauth/.well-known/oauth-authorization-server"
+    },
+    {
+      "source": "/.well-known/oauth-authorization-server",
+      "destination": "https://asia-southeast1-drawdown-monitor-wl.cloudfunctions.net/oauth/.well-known/oauth-authorization-server"
+    },
+    {
+      "source": "/.well-known/openid-configuration",
+      "destination": "https://asia-southeast1-drawdown-monitor-wl.cloudfunctions.net/oauth/.well-known/openid-configuration"
+    },
+    {
+      "source": "/oauth/:endpoint(register|token|client|approve)",
+      "destination": "https://asia-southeast1-drawdown-monitor-wl.cloudfunctions.net/oauth/oauth/:endpoint"
+    },
+    {
       "source": "/(.*)",
       "destination": "/index.html"
     }
